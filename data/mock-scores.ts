@@ -75,7 +75,7 @@ const AAPL: StabilityScore = {
       name: "Earnings Stability",
       category: "financial",
       score: 88,
-      weight: 0.25,
+      weight: 0.22,
       description: "Low variance in quarterly EPS over last 8 quarters",
       rawValue: "EPS σ = 0.12",
       trend: "stable",
@@ -84,7 +84,7 @@ const AAPL: StabilityScore = {
       name: "Debt Health",
       category: "financial",
       score: 75,
-      weight: 0.2,
+      weight: 0.18,
       description: "Debt-to-equity ratio normalized against tech sector median",
       rawValue: "D/E = 1.87 (sector median: 1.45)",
       trend: "slightly_high",
@@ -93,7 +93,7 @@ const AAPL: StabilityScore = {
       name: "Cash Flow Resilience",
       category: "financial",
       score: 92,
-      weight: 0.2,
+      weight: 0.18,
       description: "Free cash flow relative to total debt obligations",
       rawValue: "FCF/Debt = 0.42",
       trend: "strong",
@@ -102,7 +102,7 @@ const AAPL: StabilityScore = {
       name: "Sentiment Momentum",
       category: "sentiment",
       score: 78,
-      weight: 0.2,
+      weight: 0.17,
       description:
         "Weighted average sentiment of last 30 days of news with recency decay",
       rawValue: "30d avg: +0.62",
@@ -117,6 +117,16 @@ const AAPL: StabilityScore = {
         "Severity-weighted count of negative articles mentioning leadership, lawsuits, or regulatory action",
       rawValue: "3 articles, low severity",
       trend: "watchlist",
+    },
+    {
+      name: "Public Interest Trend",
+      category: "sentiment",
+      score: 74,
+      weight: 0.1,
+      description:
+        "Google Trends search interest trajectory over 90 days, normalized against sector baseline",
+      rawValue: "90d trend: +12% vs sector avg",
+      trend: "positive",
     },
   ],
   signals: {
@@ -165,6 +175,24 @@ const AAPL: StabilityScore = {
     { date: "2024-07-21", sentiment: 0.5, count: 8, headline: "Apple's China strategy faces headwinds" },
     { date: "2024-07-22", sentiment: 0.3, count: 12, headline: "EU regulators set compliance deadline for Apple" },
   ],
+  confidence: {
+    level: "high",
+    description:
+      "Full coverage from 3 data sources with strong signal density",
+    sourceCount: 3,
+  },
+  sensitivity: {
+    maxImpactSignal: "Strong Q3 iPhone revenue beat expectations by 8%",
+    scoreWithout: 78,
+    delta: -4,
+    singleSignalMaxPercent: 7,
+  },
+  historicalBenchmark: {
+    comparison:
+      "Current profile resembles Apple in Q2 2023 (pre-Vision Pro announcement). Score was 78 then, suggesting stable upward trajectory.",
+    historicalScore: 78,
+    period: "Q2 2023",
+  },
 }
 
 const TSLA: StabilityScore = {
@@ -191,7 +219,7 @@ const TSLA: StabilityScore = {
       name: "Earnings Stability",
       category: "financial",
       score: 62,
-      weight: 0.25,
+      weight: 0.22,
       description: "Moderate variance in quarterly EPS due to pricing changes",
       rawValue: "EPS σ = 0.34",
       trend: "volatile",
@@ -200,7 +228,7 @@ const TSLA: StabilityScore = {
       name: "Debt Health",
       category: "financial",
       score: 81,
-      weight: 0.2,
+      weight: 0.18,
       description: "Low debt-to-equity ratio for automotive sector",
       rawValue: "D/E = 0.69 (sector median: 1.82)",
       trend: "strong",
@@ -209,7 +237,7 @@ const TSLA: StabilityScore = {
       name: "Cash Flow Resilience",
       category: "financial",
       score: 73,
-      weight: 0.2,
+      weight: 0.18,
       description: "Healthy free cash flow relative to capex commitments",
       rawValue: "FCF/Debt = 0.38",
       trend: "stable",
@@ -218,7 +246,7 @@ const TSLA: StabilityScore = {
       name: "Sentiment Momentum",
       category: "sentiment",
       score: 22,
-      weight: 0.2,
+      weight: 0.17,
       description: "Sharp negative turn in sentiment over last 30 days",
       rawValue: "30d avg: -0.31",
       trend: "declining",
@@ -231,6 +259,16 @@ const TSLA: StabilityScore = {
       description: "High volume of leadership-related negative coverage",
       rawValue: "14 articles, high severity",
       trend: "critical",
+    },
+    {
+      name: "Public Interest Trend",
+      category: "sentiment",
+      score: 85,
+      weight: 0.1,
+      description:
+        "Google Trends search interest trajectory over 90 days, normalized against sector baseline",
+      rawValue: "90d trend: +34% vs sector avg",
+      trend: "strong",
     },
   ],
   signals: {
@@ -285,6 +323,25 @@ const TSLA: StabilityScore = {
     { date: "2024-07-21", sentiment: -0.3, count: 12, headline: "Consumer Reports flags Model Y quality issues" },
     { date: "2024-07-22", sentiment: -0.4, count: 18, headline: "Tesla CEO faces new legal challenge over pay" },
   ],
+  confidence: {
+    level: "medium",
+    description:
+      "Full source coverage but elevated sentiment volatility reduces confidence",
+    sourceCount: 3,
+  },
+  sensitivity: {
+    maxImpactSignal:
+      "CEO compensation package controversy draws shareholder lawsuit",
+    scoreWithout: 54,
+    delta: 9,
+    singleSignalMaxPercent: 12,
+  },
+  historicalBenchmark: {
+    comparison:
+      "Current profile resembles Tesla in Q4 2022 (post-Twitter acquisition turmoil). Score was 41 then. Sentiment recovered over 3 months to 62.",
+    historicalScore: 41,
+    period: "Q4 2022",
+  },
 }
 
 // Lightweight variants for other tickers so every ticker resolves to something

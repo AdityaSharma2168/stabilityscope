@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { Menu, LogOut, User as UserIcon, Settings as SettingsIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,6 +39,7 @@ export function Header() {
 
   const handleLogout = () => {
     logout()
+    toast.success("Logged out successfully")
     router.push("/login")
   }
 

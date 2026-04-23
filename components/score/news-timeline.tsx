@@ -24,6 +24,29 @@ type Props = {
 }
 
 export function NewsTimeline({ timeline }: Props) {
+  const hasData = Array.isArray(timeline) && timeline.length > 0
+
+  if (!hasData) {
+    return (
+      <section aria-labelledby="news-heading" className="space-y-4">
+        <div>
+          <h2 id="news-heading" className="text-lg font-semibold text-foreground">
+            News Sentiment Timeline
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Sentiment trajectory across the analysis window. Dot size reflects
+            article volume.
+          </p>
+        </div>
+        <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-card px-6 py-16 dark:border-slate-800">
+          <p className="text-center text-sm text-muted-foreground">
+            No news data available for this analysis period.
+          </p>
+        </div>
+      </section>
+    )
+  }
+
   const sorted = [...timeline].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   )

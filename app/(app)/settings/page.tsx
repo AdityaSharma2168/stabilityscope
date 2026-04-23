@@ -104,6 +104,7 @@ export default function SettingsPage() {
   const [name, setName] = useState(user?.name ?? "")
   const [alphaKey, setAlphaKey] = useState("")
   const [newsKey, setNewsKey] = useState("")
+  const [googleTrendsKey, setGoogleTrendsKey] = useState("")
   const [cacheTtl, setCacheTtl] = useState("15")
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [alertThreshold, setAlertThreshold] = useState(50)
@@ -118,6 +119,7 @@ export default function SettingsPage() {
     if (!isLoading) {
       setAlphaKey(apiKeys.alphaVantage)
       setNewsKey(apiKeys.newsApi)
+      setGoogleTrendsKey(apiKeys.googleTrendsKey)
       setCacheTtl(preferences.cacheTtl)
       setAutoRefresh(preferences.autoRefresh)
       setAlertThreshold(preferences.alertThreshold)
@@ -139,7 +141,12 @@ export default function SettingsPage() {
     e.preventDefault()
     setIsSavingKeys(true)
     try {
-      await saveKeys({ alphaVantage: alphaKey, newsApi: newsKey })
+      // TODO: Replace with Supabase/API call
+      await saveKeys({
+        alphaVantage: alphaKey,
+        newsApi: newsKey,
+        googleTrendsKey,
+      })
       toast.success("API keys saved")
     } catch {
       toast.error("Failed to save API keys")
@@ -291,6 +298,36 @@ export default function SettingsPage() {
                   >
                     {testing === "NewsAPI" && <Spinner className="size-4" />}
                     {testing === "NewsAPI" ? "Testing" : "Test"}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="google-trends">
+                    Google Trends / SerpAPI Key
+                  </Label>
+                  <StatusDot connected={googleTrendsKey.length >= 8} />
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    id="google-trends"
+                    type="password"
+                    placeholder="••••••••••••"
+                    value={googleTrendsKey}
+                    onChange={(e) => setGoogleTrendsKey(e.target.value)}
+                    className="font-mono"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleTest("Google Trends")}
+                    disabled={googleTrendsKey.length < 8 || testing !== null}
+                    className="min-w-[80px] gap-2"
+                  >
+                    {testing === "Google Trends" && (
+                      <Spinner className="size-4" />
+                    )}
+                    {testing === "Google Trends" ? "Testing" : "Test"}
                   </Button>
                 </div>
               </div>

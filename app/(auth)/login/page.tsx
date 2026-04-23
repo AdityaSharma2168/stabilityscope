@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 import { Logo } from "@/components/shared/logo"
@@ -13,10 +13,16 @@ import { useAuth } from "@/components/providers/auth-provider"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, isAuthenticated } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace("/dashboard")
+    }
+  }, [isAuthenticated, router])
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()

@@ -42,6 +42,25 @@ export type Counterfactual = {
   projectedSegment: string
 }
 
+export type Confidence = {
+  level: "high" | "medium" | "low"
+  description: string
+  sourceCount: number
+}
+
+export type Sensitivity = {
+  maxImpactSignal: string
+  scoreWithout: number
+  delta: number
+  singleSignalMaxPercent: number
+}
+
+export type HistoricalBenchmark = {
+  comparison: string
+  historicalScore: number
+  period: string
+}
+
 export type StabilityScore = {
   ticker: string
   companyName: string
@@ -59,6 +78,9 @@ export type StabilityScore = {
     negative: Signal[]
   }
   newsTimeline: NewsPoint[]
+  confidence: Confidence
+  sensitivity: Sensitivity
+  historicalBenchmark: HistoricalBenchmark
 }
 
 export type RecentScore = {

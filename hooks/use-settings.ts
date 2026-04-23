@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 export type ApiKeys = {
   alphaVantage: string
   newsApi: string
+  googleTrendsKey: string
 }
 
 export type Preferences = {
@@ -16,6 +17,7 @@ export type Preferences = {
 const DEFAULT_KEYS: ApiKeys = {
   alphaVantage: "",
   newsApi: "",
+  googleTrendsKey: "",
 }
 
 const DEFAULT_PREFS: Preferences = {
@@ -38,6 +40,7 @@ async function fetchSettings(): Promise<{
 }
 
 // TODO: Replace with Supabase/API call
+// Persists all API keys (Alpha Vantage, NewsAPI, Google Trends / SerpAPI).
 async function persistKeys(keys: ApiKeys): Promise<ApiKeys> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(keys), 400)

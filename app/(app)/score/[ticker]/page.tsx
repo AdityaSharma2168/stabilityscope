@@ -7,6 +7,7 @@ import { ScoreHero } from "@/components/score/score-hero"
 import { DimensionBreakdown } from "@/components/score/dimension-breakdown"
 import { SignalsSection } from "@/components/score/signals-section"
 import { NewsTimeline } from "@/components/score/news-timeline"
+import { ValidationSection } from "@/components/score/validation-section"
 import { ProcessingInfo } from "@/components/score/processing-info"
 import { useScoreDetail } from "@/hooks/use-score-detail"
 
@@ -60,6 +61,7 @@ export default function ScorePage({
         negative={score.signals.negative}
       />
       <NewsTimeline timeline={score.newsTimeline} />
+      <ValidationSection score={score} />
       <ProcessingInfo
         processingTime={score.processingTime}
         cacheHit={score.cacheHit ?? false}

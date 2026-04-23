@@ -7,7 +7,9 @@ import { EmptyState } from "@/components/shared/empty-state"
 import { QuickAccessPills } from "@/components/dashboard/quick-access-pills"
 import { RecentScoreCard } from "@/components/dashboard/recent-score-card"
 import { MarketOverview } from "@/components/dashboard/market-overview"
-import { MOCK_RECENT_SCORES } from "@/data/mock-scores"
+import { RecentScoreCardSkeleton } from "@/components/dashboard/recent-score-card-skeleton"
+import { MarketOverviewSkeleton } from "@/components/dashboard/market-overview-skeleton"
+import { useRecentScores } from "@/hooks/use-recent-scores"
 
 function greeting(name: string): string {
   const h = new Date().getHours()
@@ -25,7 +27,7 @@ function greeting(name: string): string {
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const recent = MOCK_RECENT_SCORES
+  const { scores: recent, isLoading } = useRecentScores()
   const hasRecent = recent.length > 0
 
   return (
@@ -50,7 +52,7 @@ export default function DashboardPage() {
 
       {/* Market overview */}
       <div className="mt-10">
-        <MarketOverview />
+        {isLoading ? <MarketOverviewSkeleton /> : <MarketOverview />}
       </div>
 
       {/* Recent analyses */}
@@ -59,12 +61,20 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-foreground">
             Recent Analyses
           </h2>
-          <span className="text-xs text-muted-foreground">
-            Last {recent.length}
-          </span>
+          {!isLoading && (
+            <span className="text-xs text-muted-foreground">
+              Last {recent.length}
+            </span>
+          )}
         </div>
 
-        {hasRecent ? (
+        {isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <RecentScoreCardSkeleton key={i} />
+            ))}
+          </div>
+        ) : hasRecent ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {recent.map((r) => (
               <RecentScoreCard key={`${r.ticker}-${r.timestamp}`} score={r} />

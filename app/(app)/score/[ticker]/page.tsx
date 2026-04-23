@@ -1,7 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
-import { getScoreForTicker } from "@/data/mock-scores"
+import { use, useEffect, useState } from "react"
 import { ScoreLoading } from "@/components/score/score-loading"
 import { ScoreHeaderBar } from "@/components/score/score-header-bar"
 import { ScoreHero } from "@/components/score/score-hero"
@@ -9,6 +8,7 @@ import { DimensionBreakdown } from "@/components/score/dimension-breakdown"
 import { SignalsSection } from "@/components/score/signals-section"
 import { NewsTimeline } from "@/components/score/news-timeline"
 import { ProcessingInfo } from "@/components/score/processing-info"
+import { useScoreDetail } from "@/hooks/use-score-detail"
 
 export default function ScorePage({
   params,
@@ -17,40 +17,52 @@ export default function ScorePage({
 }) {
   const { ticker: tickerParam } = use(params)
   const ticker = tickerParam.toUpperCase()
-  const data = getScoreForTicker(ticker)
+  const { score, isLoading, refresh } = useScoreDetail(ticker)
 
-  // If cache hit, skip loading; otherwise simulate processing
-  const [loading, setLoading] = useState(!data.cacheHit)
+  // Show the animated pipeline when data is still loading OR when the
+  // resolved score is a fresh analysis (cache miss). On cache hits, skip
+  // the pipeline and render the report immediately.
+  const [showPipeline, setShowPipeline] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
 
+  useEffect(() => {
+    if (isLoading) {
+      setShowPipeline(true)
+    } else if (score?.cacheHit) {
+      // Cache hit: skip the animated pipeline
+      setShowPipeline(false)
+    }
+  }, [isLoading, score])
+
   const handleRefresh = () => {
-    setLoading(true)
+    setShowPipeline(true)
     setReloadKey((k) => k + 1)
+    refresh()
   }
 
-  if (loading) {
+  if (isLoading || !score || showPipeline) {
     return (
       <ScoreLoading
         key={reloadKey}
         ticker={ticker}
-        onComplete={() => setLoading(false)}
+        onComplete={() => setShowPipeline(false)}
       />
     )
   }
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 md:px-6 md:py-8">
-      <ScoreHeaderBar data={data} onRefresh={handleRefresh} />
-      <ScoreHero data={data} />
-      <DimensionBreakdown dimensions={data.dimensions} />
+      <ScoreHeaderBar data={score} onRefresh={handleRefresh} />
+      <ScoreHero data={score} />
+      <DimensionBreakdown dimensions={score.dimensions} />
       <SignalsSection
-        positive={data.signals.positive}
-        negative={data.signals.negative}
+        positive={score.signals.positive}
+        negative={score.signals.negative}
       />
-      <NewsTimeline timeline={data.newsTimeline} />
+      <NewsTimeline timeline={score.newsTimeline} />
       <ProcessingInfo
-        processingTime={data.processingTime}
-        cacheHit={data.cacheHit ?? false}
+        processingTime={score.processingTime}
+        cacheHit={score.cacheHit ?? false}
       />
     </div>
   )

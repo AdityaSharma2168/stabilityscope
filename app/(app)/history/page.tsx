@@ -11,6 +11,7 @@ import { SegmentBadge } from "@/components/shared/segment-badge"
 import { CacheIndicator } from "@/components/shared/cache-indicator"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -20,23 +21,24 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { formatDateTime, formatMs } from "@/lib/score-utils"
-import { MOCK_HISTORY } from "@/data/mock-history"
+import { useHistory } from "@/hooks/use-history"
 
 const PAGE_SIZE = 25
 
 export default function HistoryPage() {
   const router = useRouter()
+  const { entries, isLoading } = useHistory()
   const [query, setQuery] = useState("")
   const [page, setPage] = useState(1)
 
   const filtered = useMemo(() => {
     const q = query.trim().toUpperCase()
-    if (!q) return MOCK_HISTORY
-    return MOCK_HISTORY.filter(
+    if (!q) return entries
+    return entries.filter(
       (h) =>
         h.ticker.includes(q) || h.companyName.toUpperCase().includes(q),
     )
-  }, [query])
+  }, [entries, query])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -87,6 +89,7 @@ export default function HistoryPage() {
             size="sm"
             variant="outline"
             onClick={exportCSV}
+            disabled={isLoading || filtered.length === 0}
             className="gap-2"
           >
             <Download className="h-4 w-4" />
@@ -104,11 +107,55 @@ export default function HistoryPage() {
             setQuery(e.target.value)
             setPage(1)
           }}
+          disabled={isLoading}
           className="pl-9"
         />
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-card dark:border-slate-800">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Ticker</TableHead>
+                <TableHead className="hidden md:table-cell">Company</TableHead>
+                <TableHead>Score</TableHead>
+                <TableHead className="hidden xl:table-cell">Segment</TableHead>
+                <TableHead className="hidden sm:table-cell">Time</TableHead>
+                <TableHead className="hidden sm:table-cell">Cache</TableHead>
+                <TableHead>Analyzed</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <Skeleton className="h-4 w-12" />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <Skeleton className="h-4 w-28" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-6 w-10 rounded-md" />
+                  </TableCell>
+                  <TableCell className="hidden xl:table-cell">
+                    <Skeleton className="h-5 w-40 rounded-full" />
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    <Skeleton className="h-3 w-12" />
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    <Skeleton className="h-4 w-14 rounded-full" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-3 w-24" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={Clock}
           title="No analyses found"

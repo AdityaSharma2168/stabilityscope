@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Spinner } from "@/components/ui/spinner"
 import {
   Table,
   TableBody,
@@ -38,19 +40,19 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { relativeTime } from "@/lib/score-utils"
-import { MOCK_WATCHLIST } from "@/data/mock-watchlist"
-import type { WatchlistItem } from "@/lib/types"
+import { useWatchlist } from "@/hooks/use-watchlist"
 
 type SortKey = "ticker" | "score" | "change" | "updated"
 type SortDir = "asc" | "desc"
 
 export default function WatchlistPage() {
   const router = useRouter()
-  const [items, setItems] = useState<WatchlistItem[]>(MOCK_WATCHLIST)
+  const { items, isLoading, addTicker, removeTicker } = useWatchlist()
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [addOpen, setAddOpen] = useState(false)
   const [newTicker, setNewTicker] = useState("")
+  const [isAdding, setIsAdding] = useState(false)
 
   const sorted = useMemo(() => {
     const out = [...items]
@@ -75,30 +77,33 @@ export default function WatchlistPage() {
     }
   }
 
-  const remove = (ticker: string) => {
-    setItems((prev) => prev.filter((i) => i.ticker !== ticker))
-    toast.success(`${ticker} removed from watchlist`)
+  const handleRemove = async (ticker: string) => {
+    try {
+      await removeTicker(ticker)
+      toast.success(`${ticker} removed from watchlist`)
+    } catch {
+      toast.error(`Failed to remove ${ticker}`)
+    }
   }
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const t = newTicker.trim().toUpperCase()
     if (!t) return
     if (items.some((i) => i.ticker === t)) {
       toast.error(`${t} is already in your watchlist`)
       return
     }
-    const newItem: WatchlistItem = {
-      ticker: t,
-      companyName: `${t} Inc.`,
-      score: 50 + Math.floor(Math.random() * 40),
-      segment: "Fundamentally Strong, Reputationally Clean",
-      change: Math.floor(Math.random() * 12) - 6,
-      lastUpdated: new Date().toISOString(),
+    setIsAdding(true)
+    try {
+      await addTicker(t)
+      toast.success(`${t} added to watchlist`)
+      setAddOpen(false)
+      setNewTicker("")
+    } catch {
+      toast.error(`Failed to add ${t}`)
+    } finally {
+      setIsAdding(false)
     }
-    setItems((prev) => [newItem, ...prev])
-    toast.success(`${t} added to watchlist`)
-    setAddOpen(false)
-    setNewTicker("")
   }
 
   const SortIcon = ({ k }: { k: SortKey }) => {
@@ -147,17 +152,24 @@ export default function WatchlistPage() {
                   className="font-mono uppercase"
                   maxLength={10}
                   autoFocus
+                  disabled={isAdding}
                 />
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setAddOpen(false)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setAddOpen(false)}
+                  disabled={isAdding}
+                >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleAdd}
-                  className="bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+                  disabled={isAdding}
+                  className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-400"
                 >
-                  Add
+                  {isAdding && <Spinner className="size-4" />}
+                  {isAdding ? "Adding..." : "Add"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -165,7 +177,52 @@ export default function WatchlistPage() {
         }
       />
 
-      {sorted.length === 0 ? (
+      {isLoading ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-card dark:border-slate-800">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Ticker</TableHead>
+                <TableHead className="hidden md:table-cell">Company</TableHead>
+                <TableHead>Score</TableHead>
+                <TableHead className="hidden lg:table-cell">Segment</TableHead>
+                <TableHead>24h</TableHead>
+                <TableHead className="hidden md:table-cell">
+                  Last Updated
+                </TableHead>
+                <TableHead className="w-[50px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <Skeleton className="h-4 w-12" />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <Skeleton className="h-4 w-28" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-6 w-10 rounded-md" />
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    <Skeleton className="h-5 w-40 rounded-full" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    <Skeleton className="h-3 w-20" />
+                  </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-8 w-8 rounded-md" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : sorted.length === 0 ? (
         <EmptyState
           icon={Star}
           title="No tickers in your watchlist"
@@ -258,7 +315,7 @@ export default function WatchlistPage() {
                       className="h-8 w-8 text-muted-foreground hover:text-rose-500"
                       onClick={(e) => {
                         e.stopPropagation()
-                        remove(item.ticker)
+                        handleRemove(item.ticker)
                       }}
                       aria-label={`Remove ${item.ticker}`}
                     >

@@ -1,14 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { MOCK_HISTORY } from "@/data/mock-history"
+import { authedFetch } from "@/lib/authed-fetch"
 import type { HistoryEntry } from "@/lib/types"
 
-// TODO: Replace with Supabase/API call
 async function fetchHistory(): Promise<HistoryEntry[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_HISTORY), 500)
+  const response = await authedFetch("/api/scores/history?page=1&pageSize=250", {
+    method: "GET",
   })
+  if (!response.ok) throw new Error("Failed to fetch history")
+  const json = (await response.json()) as { entries: HistoryEntry[] }
+  return json.entries
 }
 
 export function useHistory() {
@@ -18,11 +20,17 @@ export function useHistory() {
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
-    fetchHistory().then((data) => {
-      if (cancelled) return
-      setEntries(data)
-      setIsLoading(false)
-    })
+    fetchHistory()
+      .then((data) => {
+        if (cancelled) return
+        setEntries(data)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEntries([])
+        setIsLoading(false)
+      })
     return () => {
       cancelled = true
     }

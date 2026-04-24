@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState, type FormEvent } from "react"
 import { toast } from "sonner"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, Eye, EyeOff } from "lucide-react"
 import { PageHeader } from "@/components/shared/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -63,19 +63,19 @@ function SettingsCard({
 }
 
 function StatusDot({ connected }: { connected: boolean }) {
+  if (!connected) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs">
+        <span className="h-2 w-2 rounded-full bg-slate-400" />
+        <span className="text-muted-foreground">Not configured</span>
+      </span>
+    )
+  }
+
   return (
     <span className="inline-flex items-center gap-1.5 text-xs">
-      <span
-        className={cn(
-          "h-2 w-2 rounded-full",
-          connected
-            ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]"
-            : "bg-slate-400",
-        )}
-      />
-      <span className="text-muted-foreground">
-        {connected ? "Connected" : "Not configured"}
-      </span>
+      <span className="h-2 w-2 rounded-full bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.15)]" />
+      <span className="text-muted-foreground">Configured</span>
     </span>
   )
 }
@@ -113,6 +113,12 @@ export default function SettingsPage() {
   const [isSavingKeys, setIsSavingKeys] = useState(false)
   const [isSavingPrefs, setIsSavingPrefs] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
+  const [testStatus, setTestStatus] = useState<
+    Partial<Record<"Alpha Vantage" | "NewsAPI" | "Google Trends", "success" | "failed">>
+  >({})
+  const [showAlphaKey, setShowAlphaKey] = useState(false)
+  const [showNewsKey, setShowNewsKey] = useState(false)
+  const [showGoogleTrendsKey, setShowGoogleTrendsKey] = useState(false)
 
   // Hydrate form state from the hook once data arrives
   useEffect(() => {
@@ -155,13 +161,33 @@ export default function SettingsPage() {
     }
   }
 
-  const handleTest = async (provider: string) => {
+  const handleTest = async (
+    provider: "Alpha Vantage" | "NewsAPI" | "Google Trends",
+    apiKey: string,
+  ) => {
+    if (!apiKey.trim()) {
+      toast.error("Enter an API key before testing")
+      return
+    }
+
     setTesting(provider)
     try {
-      const ok = await testConnection(provider)
-      if (ok) toast.success(`${provider} connection OK`)
-      else toast.error(`${provider} connection failed`)
+      const result = await testConnection(provider, apiKey.trim())
+      if (result.success) {
+        if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+          setTestStatus((prev) => ({ ...prev, [provider]: "success" }))
+        }
+        toast.success(`${provider} connection OK`)
+      } else {
+        if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+          setTestStatus((prev) => ({ ...prev, [provider]: "failed" }))
+        }
+        toast.error(result.error || `${provider} connection failed`)
+      }
     } catch {
+      if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+        setTestStatus((prev) => ({ ...prev, [provider]: "failed" }))
+      }
       toast.error(`${provider} connection failed`)
     } finally {
       setTesting(null)
@@ -250,12 +276,24 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="alpha">Alpha Vantage API Key</Label>
-                  <StatusDot connected={alphaKey.length >= 8} />
+                  {testStatus["Alpha Vantage"] === "success" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+                      <span className="text-muted-foreground">Connected</span>
+                    </span>
+                  ) : testStatus["Alpha Vantage"] === "failed" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]" />
+                      <span className="text-muted-foreground">Connection failed</span>
+                    </span>
+                  ) : (
+                    <StatusDot connected={alphaKey.trim().length > 0} />
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Input
                     id="alpha"
-                    type="password"
+                    type={showAlphaKey ? "text" : "password"}
                     placeholder="••••••••••••"
                     value={alphaKey}
                     onChange={(e) => setAlphaKey(e.target.value)}
@@ -264,8 +302,17 @@ export default function SettingsPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => handleTest("Alpha Vantage")}
-                    disabled={alphaKey.length < 8 || testing !== null}
+                    size="icon"
+                    onClick={() => setShowAlphaKey((prev) => !prev)}
+                    aria-label={showAlphaKey ? "Hide Alpha Vantage key" : "Show Alpha Vantage key"}
+                  >
+                    {showAlphaKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleTest("Alpha Vantage", alphaKey)}
+                    disabled={testing !== null}
                     className="min-w-[80px] gap-2"
                   >
                     {testing === "Alpha Vantage" && (
@@ -278,12 +325,24 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="news">NewsAPI Key</Label>
-                  <StatusDot connected={newsKey.length >= 8} />
+                  {testStatus.NewsAPI === "success" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+                      <span className="text-muted-foreground">Connected</span>
+                    </span>
+                  ) : testStatus.NewsAPI === "failed" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]" />
+                      <span className="text-muted-foreground">Connection failed</span>
+                    </span>
+                  ) : (
+                    <StatusDot connected={newsKey.trim().length > 0} />
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Input
                     id="news"
-                    type="password"
+                    type={showNewsKey ? "text" : "password"}
                     placeholder="••••••••••••"
                     value={newsKey}
                     onChange={(e) => setNewsKey(e.target.value)}
@@ -292,8 +351,17 @@ export default function SettingsPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => handleTest("NewsAPI")}
-                    disabled={newsKey.length < 8 || testing !== null}
+                    size="icon"
+                    onClick={() => setShowNewsKey((prev) => !prev)}
+                    aria-label={showNewsKey ? "Hide NewsAPI key" : "Show NewsAPI key"}
+                  >
+                    {showNewsKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleTest("NewsAPI", newsKey)}
+                    disabled={testing !== null}
                     className="min-w-[80px] gap-2"
                   >
                     {testing === "NewsAPI" && <Spinner className="size-4" />}
@@ -306,12 +374,24 @@ export default function SettingsPage() {
                   <Label htmlFor="google-trends">
                     Google Trends / SerpAPI Key
                   </Label>
-                  <StatusDot connected={googleTrendsKey.length >= 8} />
+                  {testStatus["Google Trends"] === "success" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+                      <span className="text-muted-foreground">Connected</span>
+                    </span>
+                  ) : testStatus["Google Trends"] === "failed" ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs">
+                      <span className="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]" />
+                      <span className="text-muted-foreground">Connection failed</span>
+                    </span>
+                  ) : (
+                    <StatusDot connected={googleTrendsKey.trim().length > 0} />
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Input
                     id="google-trends"
-                    type="password"
+                    type={showGoogleTrendsKey ? "text" : "password"}
                     placeholder="••••••••••••"
                     value={googleTrendsKey}
                     onChange={(e) => setGoogleTrendsKey(e.target.value)}
@@ -320,8 +400,17 @@ export default function SettingsPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => handleTest("Google Trends")}
-                    disabled={googleTrendsKey.length < 8 || testing !== null}
+                    size="icon"
+                    onClick={() => setShowGoogleTrendsKey((prev) => !prev)}
+                    aria-label={showGoogleTrendsKey ? "Hide Google Trends key" : "Show Google Trends key"}
+                  >
+                    {showGoogleTrendsKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleTest("Google Trends", googleTrendsKey)}
+                    disabled={testing !== null}
                     className="min-w-[80px] gap-2"
                   >
                     {testing === "Google Trends" && (

@@ -1,14 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { MOCK_RECENT_SCORES } from "@/data/mock-scores"
+import { authedFetch } from "@/lib/authed-fetch"
 import type { RecentScore } from "@/lib/types"
 
-// TODO: Replace with Supabase/API call
 async function fetchRecentScores(): Promise<RecentScore[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_RECENT_SCORES), 500)
-  })
+  const response = await authedFetch("/api/scores/recent", { method: "GET" })
+  if (!response.ok) throw new Error("Failed to fetch recent scores")
+  const json = (await response.json()) as { scores: RecentScore[] }
+  return json.scores
 }
 
 export function useRecentScores() {
@@ -18,11 +18,17 @@ export function useRecentScores() {
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
-    fetchRecentScores().then((data) => {
-      if (cancelled) return
-      setScores(data)
-      setIsLoading(false)
-    })
+    fetchRecentScores()
+      .then((data) => {
+        if (cancelled) return
+        setScores(data)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setScores([])
+        setIsLoading(false)
+      })
     return () => {
       cancelled = true
     }

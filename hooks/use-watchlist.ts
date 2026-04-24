@@ -1,28 +1,14 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { MOCK_WATCHLIST } from "@/data/mock-watchlist"
+import { authedFetch } from "@/lib/authed-fetch"
 import type { WatchlistItem } from "@/lib/types"
 
-// TODO: Replace with Supabase/API call
 async function fetchWatchlist(): Promise<WatchlistItem[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve([...MOCK_WATCHLIST]), 500)
-  })
-}
-
-// TODO: Replace with Supabase/API call
-async function persistAdd(item: WatchlistItem): Promise<WatchlistItem> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(item), 300)
-  })
-}
-
-// TODO: Replace with Supabase/API call
-async function persistRemove(ticker: string): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(), 300)
-  })
+  const response = await authedFetch("/api/watchlist", { method: "GET" })
+  if (!response.ok) throw new Error("Failed to fetch watchlist")
+  const json = (await response.json()) as { items: WatchlistItem[] }
+  return json.items
 }
 
 export function useWatchlist() {
@@ -32,11 +18,17 @@ export function useWatchlist() {
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
-    fetchWatchlist().then((data) => {
-      if (cancelled) return
-      setItems(data)
-      setIsLoading(false)
-    })
+    fetchWatchlist()
+      .then((data) => {
+        if (cancelled) return
+        setItems(data)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setItems([])
+        setIsLoading(false)
+      })
     return () => {
       cancelled = true
     }
@@ -45,15 +37,17 @@ export function useWatchlist() {
   const addTicker = useCallback(
     async (ticker: string): Promise<WatchlistItem> => {
       const t = ticker.trim().toUpperCase()
-      const newItem: WatchlistItem = {
-        ticker: t,
-        companyName: `${t} Inc.`,
-        score: 50 + Math.floor(Math.random() * 40),
-        segment: "Fundamentally Strong, Reputationally Clean",
-        change: Math.floor(Math.random() * 12) - 6,
-        lastUpdated: new Date().toISOString(),
+      const response = await authedFetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticker: t }),
+      })
+      if (!response.ok) {
+        throw new Error("Failed to add ticker")
       }
-      const saved = await persistAdd(newItem)
+
+      const json = (await response.json()) as { item: WatchlistItem }
+      const saved = json.item
       setItems((prev) => [saved, ...prev])
       return saved
     },
@@ -61,7 +55,12 @@ export function useWatchlist() {
   )
 
   const removeTicker = useCallback(async (ticker: string): Promise<void> => {
-    await persistRemove(ticker)
+    const response = await authedFetch(`/api/watchlist/${ticker.toUpperCase()}`, {
+      method: "DELETE",
+    })
+    if (!response.ok) {
+      throw new Error("Failed to remove ticker")
+    }
     setItems((prev) => prev.filter((i) => i.ticker !== ticker))
   }, [])
 

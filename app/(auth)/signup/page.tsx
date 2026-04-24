@@ -29,14 +29,25 @@ export default function SignupPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    const ok = await signup(name, email, password)
-    setSubmitting(false)
-    if (!ok) {
-      toast.error("Could not create account. Please check your inputs.")
-      return
+    try {
+      const ok = await signup(name, email, password)
+      if (!ok) {
+        toast.error("Could not create account. Please check your inputs.")
+        return
+      }
+      toast.success("Account created! Welcome to StabilityScope.")
+      router.push("/dashboard")
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Could not create account. Please try again."
+      if (message.toLowerCase().includes("rate limit")) {
+        toast.error("Signup rate limit hit. Please wait a minute and try again.")
+      } else {
+        toast.error(message)
+      }
+    } finally {
+      setSubmitting(false)
     }
-    toast.success("Account created! Welcome to StabilityScope.")
-    router.push("/dashboard")
   }
 
   return (

@@ -9,7 +9,10 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { MOCK_USER, type User } from "@/data/mock-user"
+import { type Session, type User as SupabaseUser } from "@supabase/supabase-js"
+
+import { type User } from "@/data/mock-user"
+import { supabase } from "@/lib/supabase-client"
 
 type AuthState = {
   user: User | null
@@ -23,92 +26,138 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null)
 
-const STORAGE_KEY = "stabilityscope:auth"
+function mapSupabaseUser(user: SupabaseUser): User {
+  return {
+    id: user.id,
+    name: (user.user_metadata?.full_name as string | undefined) || "User",
+    email: user.email || "",
+    created_at: user.created_at || new Date().toISOString(),
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw) as User
-        setUser(parsed)
+    let mounted = true
+
+    const restoreSession = async () => {
+      const { data, error } = await supabase.auth.getSession()
+      if (!mounted) return
+
+      if (error) {
+        setSession(null)
+        setUser(null)
+        setIsLoading(false)
+        return
       }
-    } catch {
-      // ignore
-    } finally {
+
+      setSession(data.session)
+      setUser(data.session?.user ? mapSupabaseUser(data.session.user) : null)
       setIsLoading(false)
     }
-  }, [])
 
-  const persist = useCallback((next: User | null) => {
-    if (next) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    } else {
-      localStorage.removeItem(STORAGE_KEY)
+    restoreSession()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        setSession(nextSession)
+        setUser(nextSession?.user ? mapSupabaseUser(nextSession.user) : null)
+        setIsLoading(false)
+      },
+    )
+
+    return () => {
+      mounted = false
+      authListener.subscription.unsubscribe()
     }
   }, [])
 
-  const login = useCallback(
-    async (email: string, _password: string): Promise<boolean> => {
-      await new Promise((r) => setTimeout(r, 500))
-      // mock: any non-empty email/password works
-      if (!email) return false
-      const next: User = { ...MOCK_USER, email }
-      setUser(next)
-      persist(next)
-      return true
-    },
-    [persist],
-  )
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error || !data.user) return false
+
+    setSession(data.session)
+    setUser(mapSupabaseUser(data.user))
+    return true
+  }, [])
 
   const signup = useCallback(
-    async (name: string, email: string, _password: string): Promise<boolean> => {
-      await new Promise((r) => setTimeout(r, 500))
-      if (!name || !email) return false
-      const next: User = {
-        ...MOCK_USER,
-        name,
-        email,
-        created_at: new Date().toISOString(),
+    async (name: string, email: string, password: string): Promise<boolean> => {
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: name,
+            },
+          },
+        })
+
+        if (error) {
+          throw new Error(error.message)
+        }
+        if (!data.user) {
+          throw new Error("No user was returned by Supabase signup.")
+        }
+
+        if (data.session) {
+          const { error: profileError } = await supabase.from("profiles").upsert({
+            id: data.user.id,
+            full_name: name,
+          })
+
+          if (profileError) {
+            console.warn("Profile upsert failed after signup:", profileError.message)
+          }
+
+          setSession(data.session)
+          setUser(mapSupabaseUser(data.user))
+        }
+
+        return true
+      } catch (err) {
+        console.error("Signup failed:", err)
+        throw err
       }
-      setUser(next)
-      persist(next)
-      return true
     },
-    [persist],
+    [],
   )
 
   const logout = useCallback(() => {
+    void supabase.auth.signOut()
+    setSession(null)
     setUser(null)
-    persist(null)
-  }, [persist])
+  }, [])
 
   const updateProfile = useCallback(
     (patch: Partial<Pick<User, "name" | "email">>) => {
       setUser((prev) => {
         if (!prev) return prev
-        const next = { ...prev, ...patch }
-        persist(next)
-        return next
+        return { ...prev, ...patch }
       })
     },
-    [persist],
+    [],
   )
 
   const value = useMemo<AuthState>(
     () => ({
       user,
-      isAuthenticated: !!user,
+      isAuthenticated: !!session,
       isLoading,
       login,
       signup,
       logout,
       updateProfile,
     }),
-    [user, isLoading, login, signup, logout, updateProfile],
+    [user, session, isLoading, login, signup, logout, updateProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { authedFetch } from "@/lib/authed-fetch"
 
 export type ApiKeys = {
   alphaVantage: string
@@ -14,6 +15,13 @@ export type Preferences = {
   alertThreshold: number
 }
 
+export type ConnectionTestResult = {
+  success: boolean
+  error?: string
+}
+
+type TestProvider = "Alpha Vantage" | "NewsAPI" | "Google Trends"
+
 const DEFAULT_KEYS: ApiKeys = {
   alphaVantage: "",
   newsApi: "",
@@ -26,41 +34,6 @@ const DEFAULT_PREFS: Preferences = {
   alertThreshold: 50,
 }
 
-// TODO: Replace with Supabase/API call
-async function fetchSettings(): Promise<{
-  apiKeys: ApiKeys
-  preferences: Preferences
-}> {
-  return new Promise((resolve) => {
-    setTimeout(
-      () => resolve({ apiKeys: DEFAULT_KEYS, preferences: DEFAULT_PREFS }),
-      500,
-    )
-  })
-}
-
-// TODO: Replace with Supabase/API call
-// Persists all API keys (Alpha Vantage, NewsAPI, Google Trends / SerpAPI).
-async function persistKeys(keys: ApiKeys): Promise<ApiKeys> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(keys), 400)
-  })
-}
-
-// TODO: Replace with Supabase/API call
-async function persistPreferences(prefs: Preferences): Promise<Preferences> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(prefs), 400)
-  })
-}
-
-// TODO: Replace with Supabase/API call
-async function runConnectionTest(provider: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(true), 1000)
-  })
-}
-
 export function useSettings() {
   const [apiKeys, setApiKeys] = useState<ApiKeys>(DEFAULT_KEYS)
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFS)
@@ -68,27 +41,88 @@ export function useSettings() {
 
   useEffect(() => {
     let cancelled = false
-    setIsLoading(true)
-    fetchSettings().then((data) => {
-      if (cancelled) return
-      setApiKeys(data.apiKeys)
-      setPreferences(data.preferences)
-      setIsLoading(false)
-    })
+    const load = async () => {
+      try {
+        setIsLoading(true)
+
+        const [keysRes, prefsRes] = await Promise.all([
+          authedFetch("/api/settings/keys", { method: "GET" }),
+          authedFetch("/api/settings/preferences", { method: "GET" }),
+        ])
+        if (!keysRes.ok || !prefsRes.ok) {
+          if (!cancelled) setIsLoading(false)
+          return
+        }
+
+        const keysJson = (await keysRes.json()) as {
+          keys: Array<{ provider: string; exists: boolean; value?: string }>
+        }
+        const prefsJson = (await prefsRes.json()) as { preferences: Preferences }
+        if (cancelled) return
+
+        const valueFor = (provider: string) =>
+          keysJson.keys.find((entry) => entry.provider === provider)?.value || ""
+
+        setApiKeys({
+          alphaVantage: valueFor("alphaVantage"),
+          newsApi: valueFor("newsApi"),
+          googleTrendsKey: valueFor("googleTrendsKey"),
+        })
+        setPreferences(prefsJson.preferences ?? DEFAULT_PREFS)
+        setIsLoading(false)
+      } catch {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+
+    void load()
+
     return () => {
       cancelled = true
     }
   }, [])
 
   const saveKeys = useCallback(async (next: ApiKeys): Promise<ApiKeys> => {
-    const saved = await persistKeys(next)
-    setApiKeys(saved)
-    return saved
+    const providers: Array<{ provider: keyof ApiKeys; dbProvider: string }> = [
+      { provider: "alphaVantage", dbProvider: "alphaVantage" },
+      { provider: "newsApi", dbProvider: "newsApi" },
+      { provider: "googleTrendsKey", dbProvider: "googleTrendsKey" },
+    ]
+
+    for (const item of providers) {
+      const value = next[item.provider].trim()
+      if (!value) continue
+
+      const response = await authedFetch("/api/settings/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: item.dbProvider,
+          apiKey: value,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to save API key")
+      }
+    }
+
+    setApiKeys(next)
+    return next
   }, [])
 
   const savePreferences = useCallback(
     async (next: Preferences): Promise<Preferences> => {
-      const saved = await persistPreferences(next)
+      const response = await authedFetch("/api/settings/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      })
+      if (!response.ok) {
+        throw new Error("Failed to save preferences")
+      }
+      const json = (await response.json()) as { preferences: Preferences }
+      const saved = json.preferences
       setPreferences(saved)
       return saved
     },
@@ -96,8 +130,17 @@ export function useSettings() {
   )
 
   const testConnection = useCallback(
-    async (provider: string): Promise<boolean> => {
-      return runConnectionTest(provider)
+    async (provider: TestProvider, apiKey?: string): Promise<ConnectionTestResult> => {
+      const response = await authedFetch("/api/settings/keys/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, apiKey }),
+      })
+      const json = (await response.json()) as ConnectionTestResult
+      if (!response.ok) {
+        return { success: false, error: json.error || "Connection test failed" }
+      }
+      return json
     },
     [],
   )

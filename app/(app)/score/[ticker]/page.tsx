@@ -65,6 +65,7 @@ export default function ScorePage({
       <ProcessingInfo
         processingTime={score.processingTime}
         cacheHit={score.cacheHit ?? false}
+        sourcesCount={score.confidence?.sourceCount ?? 5}
       />
     </div>
   )

@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
 
 const PROVIDER_MAP = {
-  "Alpha Vantage": "alpha_vantage",
+  Tiingo: "tiingo",
   NewsAPI: "newsapi",
   "Google Trends": "serpapi",
 } as const
@@ -13,10 +13,10 @@ const PROVIDER_MAP = {
 type ProviderInput = keyof typeof PROVIDER_MAP
 
 function validateApiKeyFormat(provider: ProviderInput, apiKey: string): string | null {
-  if (provider === "Alpha Vantage") {
-    return /^[A-Z0-9]{16}$/.test(apiKey)
+  if (provider === "Tiingo") {
+    return /^[a-f0-9]{40}$/i.test(apiKey)
       ? null
-      : "Alpha Vantage key must be 16 uppercase letters/numbers"
+      : "Tiingo key must be a 40-character hex token"
   }
 
   if (provider === "NewsAPI") {
@@ -31,16 +31,25 @@ function validateApiKeyFormat(provider: ProviderInput, apiKey: string): string |
 }
 
 async function testProvider(provider: ProviderInput, apiKey: string): Promise<void> {
-  if (provider === "Alpha Vantage") {
-    const url = new URL("https://www.alphavantage.co/query")
-    url.searchParams.set("function", "SYMBOL_SEARCH")
-    url.searchParams.set("keywords", "AAPL")
-    url.searchParams.set("apikey", apiKey)
-    const response = await fetch(url, { method: "GET", cache: "no-store" })
-    if (!response.ok) throw new Error("Alpha Vantage request failed")
-    const payload = (await response.json()) as { Note?: string; "Error Message"?: string }
-    if (payload.Note || payload["Error Message"]) {
-      throw new Error(payload.Note || payload["Error Message"] || "Alpha Vantage key is invalid")
+  if (provider === "Tiingo") {
+    const response = await fetch("https://api.tiingo.com/api/test", {
+      method: "GET",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`
+      try {
+        const parsed = JSON.parse(text) as { detail?: string; message?: string }
+        detail = parsed.detail || parsed.message || detail
+      } catch {
+        // body wasn't JSON; keep default detail
+      }
+      throw new Error(detail || "Tiingo request failed")
     }
     return
   }

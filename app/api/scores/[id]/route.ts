@@ -38,7 +38,8 @@ export async function GET(
       counterfactual: data.counterfactual,
       analyzedAt: data.created_at,
       processingTime: data.processing_time_ms ?? 0,
-      cacheHit: data.cache_hit ?? false,
+      // Persisted fetch is never the same as a live Redis hit on POST /api/score
+      cacheHit: false,
       dimensions: data.dimensions,
       signals: data.signals,
       newsTimeline: data.news_timeline,

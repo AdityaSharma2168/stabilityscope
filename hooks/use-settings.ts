@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { authedFetch } from "@/lib/authed-fetch"
 
 export type ApiKeys = {
-  alphaVantage: string
+  tiingoKey: string
   newsApi: string
   googleTrendsKey: string
 }
@@ -20,10 +20,10 @@ export type ConnectionTestResult = {
   error?: string
 }
 
-type TestProvider = "Alpha Vantage" | "NewsAPI" | "Google Trends"
+type TestProvider = "Tiingo" | "NewsAPI" | "Google Trends"
 
 const DEFAULT_KEYS: ApiKeys = {
-  alphaVantage: "",
+  tiingoKey: "",
   newsApi: "",
   googleTrendsKey: "",
 }
@@ -64,7 +64,7 @@ export function useSettings() {
           keysJson.keys.find((entry) => entry.provider === provider)?.value || ""
 
         setApiKeys({
-          alphaVantage: valueFor("alphaVantage"),
+          tiingoKey: valueFor("tiingoKey"),
           newsApi: valueFor("newsApi"),
           googleTrendsKey: valueFor("googleTrendsKey"),
         })
@@ -84,7 +84,7 @@ export function useSettings() {
 
   const saveKeys = useCallback(async (next: ApiKeys): Promise<ApiKeys> => {
     const providers: Array<{ provider: keyof ApiKeys; dbProvider: string }> = [
-      { provider: "alphaVantage", dbProvider: "alphaVantage" },
+      { provider: "tiingoKey", dbProvider: "tiingoKey" },
       { provider: "newsApi", dbProvider: "newsApi" },
       { provider: "googleTrendsKey", dbProvider: "googleTrendsKey" },
     ]

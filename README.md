@@ -24,6 +24,15 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Trade-offs
+
+- **Limited to DOW 30 companies due to Tiingo free tier constraints.** The
+  fundamentals endpoint (`/tiingo/fundamentals/<ticker>/statements`) only
+  returns data for the DOW 30 on the free plan, so the ticker search and the
+  `POST /api/score` endpoint reject anything outside that list. **Production
+  would use FMP or a paid Tiingo plan for full market coverage.** The
+  authoritative list lives in `lib/dow30.ts`.
+
 ## Learn More
 
 To learn more, take a look at the following resources:

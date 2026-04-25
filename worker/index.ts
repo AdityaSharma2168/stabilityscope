@@ -1,7 +1,44 @@
 import { Worker } from "bullmq"
 
+import type { CompanyNewsArticle } from "./apis/newsapi"
+import { getCompanyNews } from "./apis/newsapi"
+import {
+  computeTrendDirection,
+  getGoogleTrends,
+  type TrendDataPoint,
+} from "./apis/serpapi"
+import {
+  getBalanceSheet,
+  getCashFlow,
+  getIncomeStatement,
+  searchSymbol,
+} from "./apis/tiingo"
+import {
+  buildOpenAIClient,
+  computeSensitivity,
+  generateCounterfactual,
+  generateHistoricalBenchmark,
+  generateSummary,
+  type AnalysisContext,
+} from "./scoring/analysis"
+import {
+  applyRobustnessCaps,
+  assignSegment,
+  capSignalImpact,
+  computeCompositeScore,
+  MAX_PER_SIGNAL_IMPACT,
+} from "./scoring/composite"
+import {
+  computeAllDimensions,
+  type SentimentArticleScored,
+} from "./scoring/dimensions"
+import { scoreSentimentBatch } from "./scoring/sentiment"
 import { logger } from "../lib/logger"
 import { redis } from "../lib/redis"
+import {
+  SCORE_PIPELINE_VERSION,
+  stabilityScoreCacheKey,
+} from "../lib/score-cache-key"
 import { supabaseAdmin } from "../lib/supabase-server"
 import type {
   Confidence,
@@ -21,18 +58,28 @@ type JobPayload = {
 }
 
 type FinancialData = {
-  revenueGrowth: number
-  debtToEquity: number
-  freeCashFlowToDebt: number
+  epsValues: number[]
+  totalDebt: number | null
+  totalEquity: number | null
+  freeCashFlow: number | null
+  partial: boolean
 }
 
 type NewsData = {
+  articles: CompanyNewsArticle[]
+  scoredArticles: SentimentArticleScored[]
   sentimentSeries: NewsPoint[]
   signals: { positive: Signal[]; negative: Signal[] }
+  partial: boolean
 }
 
 type TrendsData = {
-  trendScore: number
+  series: TrendDataPoint[] | null
+  partial: boolean
+}
+
+function clamp(value: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, value))
 }
 
 async function updateJobProgress(
@@ -50,160 +97,175 @@ async function updateJobProgress(
     .eq("id", jobId)
 }
 
-async function resolveCompany(ticker: string): Promise<{ companyName: string; exchange: string }> {
-  // TODO: implement in Phase 5
-  return { companyName: `${ticker} Corp`, exchange: "NASDAQ" }
-}
-
-async function fetchFinancialData(_ticker: string): Promise<FinancialData> {
-  // TODO: implement in Phase 5
-  return { revenueGrowth: 8.2, debtToEquity: 0.45, freeCashFlowToDebt: 0.62 }
-}
-
-async function fetchNewsData(ticker: string, companyName: string): Promise<NewsData> {
-  // TODO: implement in Phase 5
-  const now = new Date().toISOString()
+async function resolveCompany(
+  userId: string,
+  ticker: string,
+): Promise<{ companyName: string; exchange: string; sector: string; partial: boolean }> {
+  const r = await searchSymbol(redis, supabaseAdmin, userId, ticker)
   return {
-    sentimentSeries: [
-      { date: now, sentiment: 0.24, count: 5, headline: `${companyName} momentum stable` },
-    ],
-    signals: {
-      positive: [
-        { text: `${ticker} posted resilient margin trend`, source: "Placeholder", date: now, impact: 3 },
-      ],
-      negative: [
-        { text: `${ticker} faces short-term demand uncertainty`, source: "Placeholder", date: now, impact: -2 },
-      ],
-    },
+    companyName: r.companyName,
+    exchange: r.exchange,
+    sector: r.sector,
+    partial: r.partial,
   }
 }
 
-async function fetchTrendsData(_ticker: string): Promise<TrendsData> {
-  // TODO: implement in Phase 5
-  return { trendScore: 58 }
+async function fetchFinancialData(userId: string, ticker: string): Promise<FinancialData> {
+  const income = await getIncomeStatement(redis, supabaseAdmin, userId, ticker)
+  const balance = await getBalanceSheet(redis, supabaseAdmin, userId, ticker)
+  const cash = await getCashFlow(redis, supabaseAdmin, userId, ticker)
+
+  const epsValues = income.quarterlyEPS
+    .map((row) => Number(row.reportedEPS))
+    .filter((n) => Number.isFinite(n))
+
+  return {
+    epsValues,
+    totalDebt: balance.totalDebt,
+    totalEquity: balance.totalEquity,
+    freeCashFlow: cash.freeCashFlow,
+    partial: income.partial || balance.partial || cash.partial,
+  }
 }
 
-function computeDimensions(
-  financialData: FinancialData,
-  newsData: NewsData,
-  trendsData: TrendsData,
-): Dimension[] {
-  const sentiment = Math.round((newsData.sentimentSeries[0]?.sentiment ?? 0) * 100)
-  return [
-    {
-      name: "Earnings Stability",
-      category: "financial",
-      score: Math.max(0, Math.min(100, 70 + Math.round(financialData.revenueGrowth))),
-      weight: 0.22,
-      description: "Placeholder earnings stability score.",
-      rawValue: `${financialData.revenueGrowth.toFixed(1)}% growth`,
-      trend: "stable",
-    },
-    {
-      name: "Debt Health",
-      category: "financial",
-      score: Math.max(0, Math.min(100, 100 - Math.round(financialData.debtToEquity * 100))),
-      weight: 0.18,
-      description: "Placeholder debt health score.",
-      rawValue: financialData.debtToEquity.toFixed(2),
-      trend: "strong",
-    },
-    {
-      name: "Cash Flow Resilience",
-      category: "financial",
-      score: Math.round(financialData.freeCashFlowToDebt * 100),
-      weight: 0.18,
-      description: "Placeholder cash flow resilience score.",
-      rawValue: financialData.freeCashFlowToDebt.toFixed(2),
-      trend: "positive",
-    },
-    {
-      name: "Sentiment Momentum",
-      category: "sentiment",
-      score: Math.max(0, Math.min(100, 50 + sentiment)),
-      weight: 0.17,
-      description: "Placeholder sentiment momentum score.",
-      rawValue: sentiment.toString(),
-      trend: "stable",
-    },
-    {
-      name: "Controversy Exposure",
-      category: "sentiment",
-      score: 62,
-      weight: 0.15,
-      description: "Placeholder controversy exposure score.",
-      rawValue: "low",
-      trend: "watchlist",
-    },
-    {
-      name: "Public Interest Trend",
-      category: "sentiment",
-      score: trendsData.trendScore,
-      weight: 0.1,
-      description: "Placeholder public interest trend score.",
-      rawValue: trendsData.trendScore.toString(),
-      trend: "stable",
-    },
-  ]
+async function fetchTrendsData(userId: string, ticker: string): Promise<TrendsData> {
+  const series = await getGoogleTrends(redis, supabaseAdmin, userId, ticker, 90)
+  if (!series || series.length === 0) {
+    return { series: null, partial: true }
+  }
+  // Use computeTrendDirection just to log direction; the dimension scorer reads the raw series.
+  const dir = computeTrendDirection(series)
+  if (dir) {
+    logger.info({
+      action: "trend_direction",
+      ticker,
+      direction: dir.direction,
+      changePercent: Number(dir.changePercent.toFixed(2)),
+    })
+  }
+  return { series, partial: false }
 }
 
-function computeCompositeScore(dimensions: Dimension[]): number {
-  const weighted = dimensions.reduce((sum, d) => sum + d.score * d.weight, 0)
-  return Math.round(weighted)
-}
+async function buildNewsData(
+  userId: string,
+  ticker: string,
+  articles: CompanyNewsArticle[],
+  newsListPartial: boolean,
+): Promise<NewsData> {
+  if (articles.length === 0) {
+    const now = new Date().toISOString()
+    return {
+      articles: [],
+      scoredArticles: [],
+      sentimentSeries: [
+        { date: now, sentiment: 0, count: 0, headline: "No recent news coverage" },
+      ],
+      signals: { positive: [], negative: [] },
+      partial: true,
+    }
+  }
 
-function assignSegment(dimensions: Dimension[]): string {
-  const financial = dimensions
-    .filter((d) => d.category === "financial")
-    .reduce((sum, d) => sum + d.score, 0) / 3
-  const sentiment = dimensions
-    .filter((d) => d.category === "sentiment")
-    .reduce((sum, d) => sum + d.score, 0) / 3
+  const sentimentScores = await scoreSentimentBatch(
+    articles.map((a) => ({ title: a.title, description: a.description, url: a.url })),
+    { redis, supabase: supabaseAdmin, userId, ticker },
+  )
 
-  if (financial >= 60 && sentiment >= 60) return "Fundamentally Strong, Reputationally Clean"
-  if (financial >= 60 && sentiment < 60) return "Financially Strong, Reputation Declining"
-  if (financial < 60 && sentiment >= 60) return "Financially Weak, Sentiment Propped"
-  return "Distressed"
+  const scoredArticles: SentimentArticleScored[] = articles.map((article, idx) => ({
+    sentiment: sentimentScores[idx] ?? 0,
+    publishedAt: article.publishedAt,
+    credibilityWeight: article.credibilityWeight,
+  }))
+
+  const now = Date.now()
+  const byDay = new Map<
+    string,
+    { sumWeighted: number; sumWeight: number; count: number; headline: string }
+  >()
+
+  articles.forEach((article, idx) => {
+    const sentiment = sentimentScores[idx] ?? 0
+    const day =
+      (article.publishedAt || "").slice(0, 10) ||
+      new Date().toISOString().slice(0, 10)
+    const ts = new Date(article.publishedAt || now).getTime()
+    const daysAgo = Math.max(0, (now - (Number.isFinite(ts) ? ts : now)) / 86_400_000)
+    const recency = 1 + 2 * Math.max(0, 1 - daysAgo / 30)
+    const w = Math.max(0.1, article.credibilityWeight) * recency
+    const prev = byDay.get(day) ?? { sumWeighted: 0, sumWeight: 0, count: 0, headline: article.title }
+    prev.sumWeighted += sentiment * w
+    prev.sumWeight += w
+    prev.count += 1
+    if (!prev.headline && article.title) prev.headline = article.title
+    byDay.set(day, prev)
+  })
+
+  const sentimentSeries: NewsPoint[] = [...byDay.entries()]
+    .sort(([da], [db]) => da.localeCompare(db))
+    .map(([date, value]) => ({
+      date: `${date}T12:00:00.000Z`,
+      sentiment:
+        value.sumWeight > 0 ? clamp(value.sumWeighted / value.sumWeight, -1, 1) : 0,
+      count: value.count,
+      headline: value.headline || "Headline",
+    }))
+
+  const scoredSignals = articles.map((article, idx) => {
+    const sentiment = sentimentScores[idx] ?? 0
+    const rawImpact = sentiment * MAX_PER_SIGNAL_IMPACT * Math.max(0.5, article.credibilityWeight)
+    const impact = Math.round(clamp(rawImpact, -MAX_PER_SIGNAL_IMPACT, MAX_PER_SIGNAL_IMPACT))
+    const url = article.url?.trim() ?? ""
+    const base: Signal = {
+      text: article.title.slice(0, 200),
+      source: article.source,
+      date: article.publishedAt,
+      impact,
+    }
+    return capSignalImpact(url ? { ...base, url } : base)
+  })
+
+  const positive = scoredSignals
+    .filter((s) => s.impact > 0)
+    .sort((a, b) => b.impact - a.impact)
+    .slice(0, 5)
+
+  const negative = scoredSignals
+    .filter((s) => s.impact < 0)
+    .sort((a, b) => a.impact - b.impact)
+    .slice(0, 5)
+
+  return {
+    articles,
+    scoredArticles,
+    sentimentSeries,
+    signals: applyRobustnessCaps({ positive, negative }),
+    partial: newsListPartial,
+  }
 }
 
 async function generateAnalysis(
-  ticker: string,
-  score: number,
-  dimensions: Dimension[],
-  signals: { positive: Signal[]; negative: Signal[] },
+  userId: string,
+  ctx: AnalysisContext,
+  confidenceInput: { level: Confidence["level"]; description: string; sourceCount: number },
 ): Promise<{
   summary: string
   counterfactual: Counterfactual
-  sensitivity: Sensitivity
   historicalBenchmark: HistoricalBenchmark
   confidence: Confidence
 }> {
-  // TODO: implement in Phase 5 (OpenAI calls)
-  const strongest = [...dimensions].sort((a, b) => b.score - a.score)[0]?.name || "Signal"
+  const client = await buildOpenAIClient(supabaseAdmin, userId)
+  const [summary, counterfactual, historicalBenchmark] = await Promise.all([
+    generateSummary(ctx, client, redis),
+    generateCounterfactual(ctx, client, redis),
+    generateHistoricalBenchmark(ctx, client, redis),
+  ])
   return {
-    summary: `${ticker} placeholder analysis generated. Composite score currently ${score}.`,
-    counterfactual: {
-      condition: `If ${strongest} weakens by 20%`,
-      currentScore: score,
-      projectedScore: Math.max(0, score - 8),
-      currentSegment: assignSegment(dimensions),
-      projectedSegment: score - 8 >= 60 ? "Financially Strong, Reputation Declining" : "Distressed",
-    },
-    sensitivity: {
-      maxImpactSignal: signals.negative[0]?.text || "No dominant signal",
-      scoreWithout: Math.max(0, score - 4),
-      delta: -4,
-      singleSignalMaxPercent: 5,
-    },
-    historicalBenchmark: {
-      comparison: "Above sector median in this placeholder run.",
-      historicalScore: Math.max(0, score - 6),
-      period: "12 months",
-    },
+    summary,
+    counterfactual,
+    historicalBenchmark,
     confidence: {
-      level: "medium",
-      description: "Placeholder confidence while API integrations are stubbed.",
-      sourceCount: 3,
+      level: confidenceInput.level,
+      description: confidenceInput.description,
+      sourceCount: confidenceInput.sourceCount,
     },
   }
 }
@@ -235,6 +297,7 @@ function buildStabilityScore(input: {
     analyzedAt: new Date().toISOString(),
     processingTime: input.processingTimeMs,
     cacheHit: false,
+    pipelineVersion: SCORE_PIPELINE_VERSION,
     dimensions: input.dimensions,
     signals: input.signals,
     newsTimeline: input.newsTimeline,
@@ -243,6 +306,44 @@ function buildStabilityScore(input: {
     historicalBenchmark: input.historicalBenchmark,
   }
 }
+
+function resolveConfidence(
+  partial: {
+    earnings: boolean
+    debt: boolean
+    cashFlow: boolean
+    sentiment: boolean
+    controversy: boolean
+    trends: boolean
+  },
+  companyPartial: boolean,
+  newsListPartial: boolean,
+): { level: Confidence["level"]; description: string; sourceCount: number } {
+  const financialPartial = partial.earnings || partial.debt || partial.cashFlow
+  const newsPartial = partial.sentiment || partial.controversy || newsListPartial
+  const trendsPartial = partial.trends
+
+  let sources = 0
+  if (!financialPartial) sources += 1
+  if (!newsPartial) sources += 1
+  if (!trendsPartial) sources += 1
+
+  const coreOk = !financialPartial && !newsPartial && !companyPartial
+  const level: Confidence["level"] =
+    coreOk && sources >= 2 ? "high" : coreOk || sources >= 1 ? "medium" : "low"
+  const description =
+    level === "high"
+      ? "Financial and news inputs complete; trends optional."
+      : level === "medium"
+        ? "Some external sources returned partial data; review raw signals."
+        : "Multiple sources missing or partial; interpret with caution."
+  return { level, description, sourceCount: sources }
+}
+
+const scoringConcurrency = Math.min(
+  3,
+  Math.max(1, Number(process.env.SCORING_WORKER_CONCURRENCY ?? 1)),
+)
 
 const worker = new Worker(
   "scoring",
@@ -254,10 +355,10 @@ const worker = new Worker(
       jobId,
       "processing",
       1,
-      "Fetching financial data from Alpha Vantage...",
+      "Fetching financial data from Tiingo...",
     )
-    const { companyName, exchange } = await resolveCompany(ticker)
-    const financialData = await fetchFinancialData(ticker)
+    const company = await resolveCompany(userId, ticker)
+    const financialData = await fetchFinancialData(userId, ticker)
 
     await updateJobProgress(
       jobId,
@@ -265,7 +366,15 @@ const worker = new Worker(
       2,
       "Fetching relevant news signals...",
     )
-    const newsData = await fetchNewsData(ticker, companyName)
+    const { articles, partial: newsListPartial } = await getCompanyNews(
+      redis,
+      supabaseAdmin,
+      userId,
+      ticker,
+      company.companyName,
+      30,
+    )
+    const newsData = await buildNewsData(userId, ticker, articles, newsListPartial)
 
     await updateJobProgress(
       jobId,
@@ -273,7 +382,7 @@ const worker = new Worker(
       3,
       "Fetching Google Trends momentum...",
     )
-    const trendsData = await fetchTrendsData(ticker)
+    const trendsData = await fetchTrendsData(userId, ticker)
 
     await updateJobProgress(
       jobId,
@@ -281,22 +390,60 @@ const worker = new Worker(
       4,
       "Computing dimensions and composite score...",
     )
-    const dimensions = computeDimensions(financialData, newsData, trendsData)
+    const baseDimensionInputs = {
+      earnings: { epsValues: financialData.epsValues, sector: company.sector },
+      debt: {
+        totalDebt: financialData.totalDebt,
+        totalEquity: financialData.totalEquity,
+        sector: company.sector,
+      },
+      cashFlow: {
+        freeCashFlow: financialData.freeCashFlow,
+        totalDebt: financialData.totalDebt,
+      },
+      trends: { series: trendsData.series },
+    }
+
+    const { dimensions, partial: dimensionPartial } = computeAllDimensions({
+      ...baseDimensionInputs,
+      sentimentArticles: newsData.scoredArticles,
+      controversyArticles: newsData.articles,
+    })
+
     const score = computeCompositeScore(dimensions)
     const segment = assignSegment(dimensions)
-    const analysis = await generateAnalysis(
-      ticker,
+
+    const sensitivity = computeSensitivity({
       score,
-      dimensions,
-      newsData.signals,
+      signals: newsData.signals,
+      controversyArticles: newsData.articles,
+      sentimentArticles: newsData.scoredArticles,
+      dimensionInputs: baseDimensionInputs,
+    })
+
+    const confidenceMeta = resolveConfidence(
+      dimensionPartial,
+      company.partial,
+      newsListPartial,
     )
+
+    const analysisCtx: AnalysisContext = {
+      ticker,
+      companyName: company.companyName,
+      score,
+      segment,
+      dimensions,
+      signals: newsData.signals,
+    }
+
+    const analysis = await generateAnalysis(userId, analysisCtx, confidenceMeta)
 
     await updateJobProgress(jobId, "processing", 5, "Saving final score output...")
     const processingTimeMs = Date.now() - startedAt
     const fullScore = buildStabilityScore({
       ticker,
-      companyName,
-      exchange,
+      companyName: company.companyName,
+      exchange: company.exchange,
       score,
       segment,
       dimensions,
@@ -304,7 +451,7 @@ const worker = new Worker(
       newsTimeline: newsData.sentimentSeries,
       summary: analysis.summary,
       counterfactual: analysis.counterfactual,
-      sensitivity: analysis.sensitivity,
+      sensitivity,
       historicalBenchmark: analysis.historicalBenchmark,
       confidence: analysis.confidence,
       processingTimeMs,
@@ -346,7 +493,7 @@ const worker = new Worker(
       (preferenceRow?.cache_ttl_minutes ?? 15) * 60,
     )
     await redis.set(
-      `score:${userId}:${ticker}`,
+      stabilityScoreCacheKey(userId, ticker),
       JSON.stringify(fullScore),
       "EX",
       ttlSeconds,
@@ -370,7 +517,7 @@ const worker = new Worker(
       durationMs: processingTimeMs,
     })
   },
-  { connection: redis, concurrency: 3 },
+  { connection: redis, concurrency: scoringConcurrency },
 )
 
 worker.on("failed", async (job, error) => {
@@ -395,4 +542,8 @@ worker.on("failed", async (job, error) => {
   })
 })
 
-logger.info({ action: "worker_ready", queue: "scoring", concurrency: 3 })
+logger.info({
+  action: "worker_ready",
+  queue: "scoring",
+  concurrency: scoringConcurrency,
+})

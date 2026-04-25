@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server"
 
 import { getCurrentUserId } from "@/lib/auth-helpers"
+import { DOW30_NOT_SUPPORTED_MESSAGE, isDow30Ticker } from "@/lib/dow30"
 import { logger } from "@/lib/logger"
 import { scoringQueue } from "@/lib/queue"
 import { redis } from "@/lib/redis"
+import {
+  SCORE_PIPELINE_VERSION,
+  stabilityScoreCacheKey,
+} from "@/lib/score-cache-key"
 import { supabaseAdmin } from "@/lib/supabase-server"
+import type { StabilityScore } from "@/lib/types"
 
 export async function POST(req: Request) {
   try {
@@ -14,22 +20,51 @@ export async function POST(req: Request) {
     }
 
     const url = new URL(req.url)
-    const force = url.searchParams.get("force") === "true"
-    const body = (await req.json()) as { ticker?: string }
+    const body = (await req.json()) as { ticker?: string; force?: boolean }
+    const force =
+      body.force === true || url.searchParams.get("force") === "true"
     const ticker = body.ticker?.trim().toUpperCase()
     if (!ticker) {
       return NextResponse.json({ error: "ticker is required" }, { status: 400 })
     }
 
-    const cacheKey = `score:${userId}:${ticker}`
+    if (!isDow30Ticker(ticker)) {
+      logger.warn({
+        action: "score_request_rejected",
+        reason: "non_dow30_ticker",
+        ticker,
+        userId,
+      })
+      return NextResponse.json(
+        { error: DOW30_NOT_SUPPORTED_MESSAGE },
+        { status: 400 },
+      )
+    }
+
+    const cacheKey = stabilityScoreCacheKey(userId, ticker)
     if (!force) {
       const cached = await redis.get(cacheKey)
       if (cached) {
-        logger.info({ action: "cache_check", key: cacheKey, hit: true })
-        return NextResponse.json(
-          { score: JSON.parse(cached), cacheHit: true },
-          { status: 200 },
-        )
+        try {
+          const parsed = JSON.parse(cached) as StabilityScore
+          const versionOk =
+            (parsed.pipelineVersion ?? 0) >= SCORE_PIPELINE_VERSION
+          if (versionOk) {
+            logger.info({ action: "cache_check", key: cacheKey, hit: true })
+            const score: StabilityScore = { ...parsed, cacheHit: true }
+            return NextResponse.json({ score, cacheHit: true }, { status: 200 })
+          }
+          logger.info({
+            action: "cache_check",
+            key: cacheKey,
+            hit: false,
+            reason: "stale_cached_score",
+            hadVersion: parsed.pipelineVersion ?? 0,
+          })
+        } catch {
+          logger.warn({ action: "cache_check", key: cacheKey, reason: "invalid_json" })
+        }
+        await redis.del(cacheKey)
       }
     }
 

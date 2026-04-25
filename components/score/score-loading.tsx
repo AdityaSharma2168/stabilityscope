@@ -7,7 +7,7 @@ import {
 } from "@/components/shared/processing-steps"
 
 const STEP_LABELS = [
-  "Fetching financial data from Alpha Vantage",
+  "Fetching financial data from Tiingo",
   "Retrieving news articles from NewsAPI",
   "Analyzing sentiment patterns",
   "Computing dimensional scores",

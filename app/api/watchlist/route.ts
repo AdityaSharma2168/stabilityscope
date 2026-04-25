@@ -11,18 +11,29 @@ async function resolveCompanyName(
   if (!apiKey) return `${ticker} Inc.`
 
   try {
-    const url = new URL("https://www.alphavantage.co/query")
-    url.searchParams.set("function", "SYMBOL_SEARCH")
-    url.searchParams.set("keywords", ticker)
-    url.searchParams.set("apikey", apiKey)
+    const url = new URL("https://api.tiingo.com/tiingo/utilities/search")
+    url.searchParams.set("query", ticker)
 
-    const response = await fetch(url, { method: "GET", cache: "no-store" })
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    })
     if (!response.ok) return `${ticker} Inc.`
 
-    const data = (await response.json()) as { bestMatches?: Array<Record<string, string>> }
-    const firstMatch = data.bestMatches?.[0]
-    const name = firstMatch?.["2. name"]
-    return name || `${ticker} Inc.`
+    const data = (await response.json()) as Array<{
+      ticker?: string
+      name?: string
+    }>
+    const upper = ticker.toUpperCase()
+    const exact = Array.isArray(data)
+      ? data.find((row) => row.ticker?.toUpperCase() === upper)
+      : null
+    const fallback = Array.isArray(data) ? data[0] : null
+    return exact?.name || fallback?.name || `${ticker} Inc.`
   } catch {
     return `${ticker} Inc.`
   }
@@ -106,7 +117,7 @@ export async function POST(req: Request) {
       .from("user_api_keys")
       .select("api_key")
       .eq("user_id", userId)
-      .eq("provider", "alpha_vantage")
+      .eq("provider", "tiingo")
       .maybeSingle()
 
     const companyName =

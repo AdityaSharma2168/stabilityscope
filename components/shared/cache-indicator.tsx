@@ -18,7 +18,7 @@ export function CacheIndicator({ hit, className }: Props) {
       )}
     >
       {hit ? <Zap className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-      Cache {hit ? "Hit" : "Miss"}
+      {hit ? "Cached snapshot" : "Fresh analysis"}
     </span>
   )
 }

@@ -102,7 +102,7 @@ export default function SettingsPage() {
   } = useSettings()
 
   const [name, setName] = useState(user?.name ?? "")
-  const [alphaKey, setAlphaKey] = useState("")
+  const [tiingoKey, setTiingoKey] = useState("")
   const [newsKey, setNewsKey] = useState("")
   const [googleTrendsKey, setGoogleTrendsKey] = useState("")
   const [cacheTtl, setCacheTtl] = useState("15")
@@ -114,16 +114,15 @@ export default function SettingsPage() {
   const [isSavingPrefs, setIsSavingPrefs] = useState(false)
   const [testing, setTesting] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<
-    Partial<Record<"Alpha Vantage" | "NewsAPI" | "Google Trends", "success" | "failed">>
+    Partial<Record<"Tiingo" | "NewsAPI" | "Google Trends", "success" | "failed">>
   >({})
-  const [showAlphaKey, setShowAlphaKey] = useState(false)
+  const [showTiingoKey, setShowTiingoKey] = useState(false)
   const [showNewsKey, setShowNewsKey] = useState(false)
   const [showGoogleTrendsKey, setShowGoogleTrendsKey] = useState(false)
 
-  // Hydrate form state from the hook once data arrives
   useEffect(() => {
     if (!isLoading) {
-      setAlphaKey(apiKeys.alphaVantage)
+      setTiingoKey(apiKeys.tiingoKey)
       setNewsKey(apiKeys.newsApi)
       setGoogleTrendsKey(apiKeys.googleTrendsKey)
       setCacheTtl(preferences.cacheTtl)
@@ -147,9 +146,8 @@ export default function SettingsPage() {
     e.preventDefault()
     setIsSavingKeys(true)
     try {
-      // TODO: Replace with Supabase/API call
       await saveKeys({
-        alphaVantage: alphaKey,
+        tiingoKey,
         newsApi: newsKey,
         googleTrendsKey,
       })
@@ -162,7 +160,7 @@ export default function SettingsPage() {
   }
 
   const handleTest = async (
-    provider: "Alpha Vantage" | "NewsAPI" | "Google Trends",
+    provider: "Tiingo" | "NewsAPI" | "Google Trends",
     apiKey: string,
   ) => {
     if (!apiKey.trim()) {
@@ -174,18 +172,18 @@ export default function SettingsPage() {
     try {
       const result = await testConnection(provider, apiKey.trim())
       if (result.success) {
-        if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+        if (provider === "Tiingo" || provider === "NewsAPI" || provider === "Google Trends") {
           setTestStatus((prev) => ({ ...prev, [provider]: "success" }))
         }
         toast.success(`${provider} connection OK`)
       } else {
-        if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+        if (provider === "Tiingo" || provider === "NewsAPI" || provider === "Google Trends") {
           setTestStatus((prev) => ({ ...prev, [provider]: "failed" }))
         }
         toast.error(result.error || `${provider} connection failed`)
       }
     } catch {
-      if (provider === "Alpha Vantage" || provider === "NewsAPI" || provider === "Google Trends") {
+      if (provider === "Tiingo" || provider === "NewsAPI" || provider === "Google Trends") {
         setTestStatus((prev) => ({ ...prev, [provider]: "failed" }))
       }
       toast.error(`${provider} connection failed`)
@@ -275,50 +273,50 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="alpha">Alpha Vantage API Key</Label>
-                  {testStatus["Alpha Vantage"] === "success" ? (
+                  <Label htmlFor="tiingo">Tiingo API Key</Label>
+                  {testStatus["Tiingo"] === "success" ? (
                     <span className="inline-flex items-center gap-1.5 text-xs">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
                       <span className="text-muted-foreground">Connected</span>
                     </span>
-                  ) : testStatus["Alpha Vantage"] === "failed" ? (
+                  ) : testStatus["Tiingo"] === "failed" ? (
                     <span className="inline-flex items-center gap-1.5 text-xs">
                       <span className="h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.15)]" />
                       <span className="text-muted-foreground">Connection failed</span>
                     </span>
                   ) : (
-                    <StatusDot connected={alphaKey.trim().length > 0} />
+                    <StatusDot connected={tiingoKey.trim().length > 0} />
                   )}
                 </div>
                 <div className="flex gap-2">
                   <Input
-                    id="alpha"
-                    type={showAlphaKey ? "text" : "password"}
+                    id="tiingo"
+                    type={showTiingoKey ? "text" : "password"}
                     placeholder="••••••••••••"
-                    value={alphaKey}
-                    onChange={(e) => setAlphaKey(e.target.value)}
+                    value={tiingoKey}
+                    onChange={(e) => setTiingoKey(e.target.value)}
                     className="font-mono"
                   />
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={() => setShowAlphaKey((prev) => !prev)}
-                    aria-label={showAlphaKey ? "Hide Alpha Vantage key" : "Show Alpha Vantage key"}
+                    onClick={() => setShowTiingoKey((prev) => !prev)}
+                    aria-label={showTiingoKey ? "Hide Tiingo key" : "Show Tiingo key"}
                   >
-                    {showAlphaKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showTiingoKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => handleTest("Alpha Vantage", alphaKey)}
+                    onClick={() => handleTest("Tiingo", tiingoKey)}
                     disabled={testing !== null}
                     className="min-w-[80px] gap-2"
                   >
-                    {testing === "Alpha Vantage" && (
+                    {testing === "Tiingo" && (
                       <Spinner className="size-4" />
                     )}
-                    {testing === "Alpha Vantage" ? "Testing" : "Test"}
+                    {testing === "Tiingo" ? "Testing" : "Test"}
                   </Button>
                 </div>
               </div>

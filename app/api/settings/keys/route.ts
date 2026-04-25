@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
 
 const PROVIDER_MAP = {
-  alphaVantage: "alpha_vantage",
+  tiingoKey: "tiingo",
   newsApi: "newsapi",
   googleTrendsKey: "serpapi",
   openai: "openai",
@@ -30,14 +30,14 @@ export async function GET() {
     }
 
     const valuesByProvider = {
-      alphaVantage: "",
+      tiingoKey: "",
       newsApi: "",
       googleTrendsKey: "",
       openai: "",
     }
 
     for (const row of data ?? []) {
-      if (row.provider === "alpha_vantage") valuesByProvider.alphaVantage = row.api_key
+      if (row.provider === "tiingo") valuesByProvider.tiingoKey = row.api_key
       if (row.provider === "newsapi") valuesByProvider.newsApi = row.api_key
       if (row.provider === "serpapi") valuesByProvider.googleTrendsKey = row.api_key
       if (row.provider === "openai") valuesByProvider.openai = row.api_key
@@ -46,7 +46,7 @@ export async function GET() {
     return NextResponse.json(
       {
         keys: [
-          { provider: "alphaVantage", exists: !!valuesByProvider.alphaVantage, value: valuesByProvider.alphaVantage },
+          { provider: "tiingoKey", exists: !!valuesByProvider.tiingoKey, value: valuesByProvider.tiingoKey },
           { provider: "newsApi", exists: !!valuesByProvider.newsApi, value: valuesByProvider.newsApi },
           { provider: "googleTrendsKey", exists: !!valuesByProvider.googleTrendsKey, value: valuesByProvider.googleTrendsKey },
           { provider: "openai", exists: !!valuesByProvider.openai, value: valuesByProvider.openai },

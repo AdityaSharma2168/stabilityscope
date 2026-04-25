@@ -4,7 +4,7 @@
 
 StabilityScope is a stability scoring platform for publicly traded companies. Users submit a ticker and within 60 seconds receive a Stability Score (0-100), a segment classification, dimensional breakdown, top signals, and a counterfactual scenario. The system combines structured financial data with unstructured news signals, processes them through a background worker queue, caches results, and persists everything in Postgres.
 
-**The frontend is 100% complete** — all pages, components, charts, auth UI, loading states, and empty states are built with mock data. Every data hook has `// TODO: Replace with Supabase/API call` markers. The job now is to wire up the full backend: Supabase (auth + database), Redis (queue + cache), BullMQ (worker), external APIs (Alpha Vantage, NewsAPI, SerpAPI/Google Trends), scoring algorithm, and observability.
+**The frontend is 100% complete** — all pages, components, charts, auth UI, loading states, and empty states are built with mock data. Every data hook has `// TODO: Replace with Supabase/API call` markers. The job now is to wire up the full backend: Supabase (auth + database), Redis (queue + cache), BullMQ (worker), external APIs (Tiingo, NewsAPI, SerpAPI/Google Trends), scoring algorithm, and observability.
 
 ## Non-Negotiable Requirements (from spec)
 
@@ -35,7 +35,7 @@ StabilityScope is a stability scoring platform for publicly traded companies. Us
 - `score/[ticker]/page.tsx` — Full score detail: gauge, summary, counterfactual, dimensions, signals, timeline, validation, processing info
 - `watchlist/page.tsx` — Saved tickers with scores, sorting, add/remove
 - `history/page.tsx` — Past analyses with search, pagination, cache indicators
-- `settings/page.tsx` — Profile, 3 API key fields (Alpha Vantage, NewsAPI, Google Trends), preferences
+- `settings/page.tsx` — Profile, 3 API key fields (Tiingo, NewsAPI, Google Trends), preferences
 
 ### Auth Pages (in app/(auth)/)
 - `login/page.tsx` — Email/password login
@@ -82,7 +82,7 @@ StabilityScore {
 - **Database**: Supabase Postgres
 - **Queue**: BullMQ + Redis
 - **Cache**: Redis (same instance as queue, different key prefix)
-- **Financial API**: Alpha Vantage (free tier)
+- **Financial API**: Tiingo (REST, header auth)
 - **News API**: NewsAPI.org
 - **Trends API**: SerpAPI (Google Trends data)
 - **LLM**: OpenAI (bounded sub-tasks ONLY — sentiment extraction, explanation generation, counterfactual text)
@@ -107,7 +107,7 @@ CREATE TABLE profiles (
 CREATE TABLE user_api_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL, -- 'alpha_vantage', 'newsapi', 'serpapi', 'openai'
+  provider TEXT NOT NULL, -- 'tiingo', 'newsapi', 'serpapi', 'openai'
   api_key TEXT NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, provider)
@@ -211,8 +211,8 @@ Returns { jobId } to frontend
 Frontend polls GET /api/jobs/:jobId every 2 seconds
        ↓
 BullMQ Worker picks up job:
-  Step 1: Resolve ticker → company name, exchange (Alpha Vantage SYMBOL_SEARCH)
-  Step 2: Fetch financial data (Alpha Vantage — income statement, balance sheet, cash flow)
+  Step 1: Resolve ticker → company name (Tiingo /tiingo/utilities/search)
+  Step 2: Fetch financial data (Tiingo /tiingo/fundamentals/{ticker}/statements — income, balance, cash flow)
   Step 3: Fetch news articles (NewsAPI — last 30 days for this company)
   Step 4: Fetch Google Trends data (SerpAPI — 90 day interest)
   Step 5: Compute each dimension score:
@@ -248,9 +248,9 @@ Dashboard renders full score detail page
 
 | # | Dimension | Category | Weight | Source | Computation | Justification |
 |---|-----------|----------|--------|--------|-------------|---------------|
-| 1 | Earnings Stability | financial | 0.22 | Alpha Vantage | Standard deviation of quarterly EPS over last 8 quarters, inverted and normalized to 0-100 | Consistent earnings = core stability signal. High variance indicates unpredictability. |
-| 2 | Debt Health | financial | 0.18 | Alpha Vantage | Debt-to-equity ratio, normalized against sector median. Lower = better. | Overleveraged companies are fragile to rate changes and revenue dips. |
-| 3 | Cash Flow Resilience | financial | 0.18 | Alpha Vantage | Free cash flow / total debt. Higher = better. Normalized to 0-100. | Ability to service obligations regardless of earnings volatility. |
+| 1 | Earnings Stability | financial | 0.22 | Tiingo | Standard deviation of quarterly EPS over last 8 quarters, inverted and normalized to 0-100 | Consistent earnings = core stability signal. High variance indicates unpredictability. |
+| 2 | Debt Health | financial | 0.18 | Tiingo | Debt-to-equity ratio, normalized against sector median. Lower = better. | Overleveraged companies are fragile to rate changes and revenue dips. |
+| 3 | Cash Flow Resilience | financial | 0.18 | Tiingo | Free cash flow / total debt. Higher = better. Normalized to 0-100. | Ability to service obligations regardless of earnings volatility. |
 | 4 | Sentiment Momentum | sentiment | 0.17 | NewsAPI | Exponentially weighted moving average of article sentiments over 30 days. Recent articles weighted 3x vs older. Sentiment scored by OpenAI per article (bounded sub-task). | Captures trend direction, not just current level. Recency decay prevents stale news from anchoring. |
 | 5 | Controversy Exposure | sentiment | 0.15 | NewsAPI | Count of articles mentioning leadership, lawsuits, regulatory action, weighted by source credibility (tier 1/2/3) and severity. Normalized inversely. | Directly measures reputational risk. Source weighting prevents low-quality outlets from skewing. |
 | 6 | Public Interest Trend | sentiment | 0.10 | SerpAPI | Google Trends search interest over 90 days, compared to sector average. Rising = slight positive, stable = neutral, declining = negative. | Captures retail/public attention trends that precede sentiment shifts. |
@@ -369,7 +369,7 @@ volumes:
 ```
 Cache keys:
   score:{user_id}:{ticker}         → Full StabilityScore JSON (TTL from user prefs)
-  financial:{ticker}               → Alpha Vantage raw response (TTL: 1 hour)
+  tiingo:{ticker}                  → Tiingo raw response (search + statements + prices, TTL: 1 hour)
   news:{ticker}                    → NewsAPI raw response (TTL: 15 min)
   trends:{ticker}                  → SerpAPI raw response (TTL: 1 hour)
   company:{ticker}                 → Company name + exchange lookup (TTL: 24 hours)
@@ -447,7 +447,7 @@ Returns JSON:
   "cache": { "hits": 142, "misses": 58, "hit_rate": 0.71 },
   "jobs": { "completed": 58, "failed": 2, "avg_processing_ms": 14200, "queue_depth": 0 },
   "external_apis": {
-    "alpha_vantage": { "calls": 58, "avg_ms": 2100, "errors": 1 },
+    "tiingo": { "calls": 58, "avg_ms": 2100, "errors": 1 },
     "newsapi": { "calls": 58, "avg_ms": 1800, "errors": 0 },
     "serpapi": { "calls": 58, "avg_ms": 1200, "errors": 3 }
   }

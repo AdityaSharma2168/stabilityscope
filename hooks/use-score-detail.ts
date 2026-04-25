@@ -15,23 +15,33 @@ type JobStatusResponse = {
 }
 
 async function submitScore(ticker: string, force: boolean): Promise<ScoreSubmitResponse> {
-  const response = await authedFetch(`/api/score${force ? "?force=true" : ""}`, {
+  const response = await authedFetch("/api/score", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticker }),
+    cache: "no-store",
+    body: JSON.stringify({
+      ticker,
+      ...(force ? { force: true } : {}),
+    }),
   })
   if (!response.ok) throw new Error("Failed to submit score job")
   return (await response.json()) as ScoreSubmitResponse
 }
 
 async function pollJob(jobId: string): Promise<JobStatusResponse> {
-  const response = await authedFetch(`/api/jobs/${jobId}`, { method: "GET" })
+  const response = await authedFetch(`/api/jobs/${jobId}`, {
+    method: "GET",
+    cache: "no-store",
+  })
   if (!response.ok) throw new Error("Failed to poll score job")
   return (await response.json()) as JobStatusResponse
 }
 
 async function fetchScoreById(id: string): Promise<StabilityScore> {
-  const response = await authedFetch(`/api/scores/${id}`, { method: "GET" })
+  const response = await authedFetch(`/api/scores/${id}`, {
+    method: "GET",
+    cache: "no-store",
+  })
   if (!response.ok) throw new Error("Failed to fetch score details")
   const payload = (await response.json()) as { score: StabilityScore }
   return payload.score
@@ -49,10 +59,14 @@ export function useScoreDetail(ticker: string) {
     let interval: ReturnType<typeof setInterval> | undefined
 
     const run = async () => {
+      const force = forceNextRef.current
+      if (force) {
+        setScore(null)
+      }
       setIsLoading(true)
 
       try {
-        const submitResult = await submitScore(ticker, forceNextRef.current)
+        const submitResult = await submitScore(ticker, force)
         forceNextRef.current = false
         if (cancelled) return
 

@@ -25,6 +25,8 @@ export type Signal = {
   source: string
   date: string
   impact: number
+  /** Article URL from NewsAPI when available */
+  url?: string
 }
 
 export type NewsPoint = {
@@ -72,6 +74,8 @@ export type StabilityScore = {
   analyzedAt: string
   processingTime: number
   cacheHit?: boolean
+  /** Bumped when the scoring pipeline changes; Redis cache ignores older blobs */
+  pipelineVersion?: number
   dimensions: Dimension[]
   signals: {
     positive: Signal[]

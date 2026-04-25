@@ -480,6 +480,6 @@ export function getScoreForTicker(raw: string): StabilityScore {
         : score >= 50
           ? "Financially Strong, Reputation Declining"
           : "Financially Weak, Sentiment Propped",
-    summary: `${ticker} is being analyzed with synthetic data. Connect an Alpha Vantage and NewsAPI key in Settings to get real stability intelligence for this ticker.`,
+    summary: `${ticker} is being analyzed with synthetic data. Connect a Tiingo and NewsAPI key in Settings to get real stability intelligence for this ticker.`,
   })
 }

@@ -1,0 +1,31 @@
+# Build artifacts and dependencies (re-installed/built inside the image)
+node_modules
+.next
+.next/dev
+.next/cache
+.pnpm-store
+*.tsbuildinfo
+
+# Local environment & secrets — never bake into the image
+.env
+.env.local
+.env*.local
+
+# Git metadata
+.git
+.gitignore
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Cursor / agent cruft
+.cursor
+.cursorignore
+
+# Tests / docs (not needed at runtime)
+coverage
+*.md
+!README.md

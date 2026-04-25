@@ -17,12 +17,20 @@ services:
 
   worker:
     build: .
-    command: ["node", "worker/index.js"]
+    # The real scoring worker lives in worker/index.ts; tsx executes the
+    # TypeScript source directly. node_modules (including tsx) is layered in
+    # from the deps stage of the Dockerfile.
+    command: ["node_modules/.bin/tsx", "worker/index.ts"]
     environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TIINGO_API_KEY=${TIINGO_API_KEY}
+      - NEWSAPI_API_KEY=${NEWSAPI_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       - redis
     restart: unless-stopped

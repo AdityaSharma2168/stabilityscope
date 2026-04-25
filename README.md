@@ -4,6 +4,8 @@ A multi-tenant **company-stability scoring platform**. Enter a DOW 30 ticker, an
 
 The frontend is Next.js (App Router) + Tailwind + shadcn/ui. The backend is a queue-based pipeline running BullMQ workers on Redis, persisted in Supabase Postgres, observable through structured Pino logs and `/api/metrics`, and deployed end-to-end on Railway via Docker.
 
+https://stabilityscope-production.up.railway.app/login
+
 > Built as a take-home for Nomila. The full assignment context lives in [`CURSOR_CONTEXT_STABILITY.md`](./CURSOR_CONTEXT_STABILITY.md).
 
 ---

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { deleteCache, getCached } from "@/lib/cache"
 import { DOW30_NOT_SUPPORTED_MESSAGE, isDow30Ticker } from "@/lib/dow30"
@@ -28,7 +29,8 @@ async function loadUserCacheTtlSeconds(userId: string): Promise<number> {
   return Math.max(60, Math.floor(minutes * 60))
 }
 
-export async function POST(req: Request) {
+export const POST = withLogging(async (req: Request) => {
+  const start = Date.now()
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -43,6 +45,15 @@ export async function POST(req: Request) {
     if (!ticker) {
       return NextResponse.json({ error: "ticker is required" }, { status: 400 })
     }
+
+    logger.info({
+      action: "score_request",
+      method: "POST",
+      path: "/api/score",
+      userId,
+      ticker,
+      force,
+    })
 
     if (!isDow30Ticker(ticker)) {
       logger.warn({
@@ -122,10 +133,15 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ jobId: jobRow.id, cacheHit: false }, { status: 202 })
   } catch (error) {
-    logger.error({ action: "error", route: "/api/score", error })
+    logger.error({
+      action: "error",
+      route: "/api/score",
+      durationMs: Date.now() - start,
+      error,
+    })
     return NextResponse.json(
       { error: "Failed to enqueue score job" },
       { status: 500 },
     )
   }
-}
+})

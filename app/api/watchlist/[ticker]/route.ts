@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
 
-export async function DELETE(
+export const DELETE = withLogging(async (
   _req: Request,
   context: { params: Promise<{ ticker: string }> },
-) {
+) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -33,4 +34,4 @@ export async function DELETE(
       { status: 500 },
     )
   }
-}
+})

@@ -83,6 +83,44 @@ function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value))
 }
 
+/**
+ * Run a discrete worker step under structured timing, emitting:
+ *   - `job_step_start` (action, jobId, step)
+ *   - `job_step` (action, jobId, step, durationMs) on success
+ *   - `job_step_fail` (action, jobId, step, durationMs, error) on failure
+ * Errors are re-thrown so BullMQ records the job as failed.
+ */
+async function runStep<T>(
+  jobId: string,
+  ticker: string,
+  step: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const stepStart = Date.now()
+  logger.info({ action: "job_step_start", jobId, ticker, step })
+  try {
+    const result = await fn()
+    logger.info({
+      action: "job_step",
+      jobId,
+      ticker,
+      step,
+      durationMs: Date.now() - stepStart,
+    })
+    return result
+  } catch (err) {
+    logger.error({
+      action: "job_step_fail",
+      jobId,
+      ticker,
+      step,
+      durationMs: Date.now() - stepStart,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
+}
+
 async function updateJobProgress(
   jobId: string,
   status: "queued" | "processing" | "completed" | "failed",
@@ -352,14 +390,20 @@ const worker = new Worker(
     const startedAt = Date.now()
     const { jobId, userId, ticker } = job.data as JobPayload
 
+    logger.info({ action: "job_start", jobId, ticker, userId })
+
     await updateJobProgress(
       jobId,
       "processing",
       1,
       "Fetching financial data from Tiingo...",
     )
-    const company = await resolveCompany(userId, ticker)
-    const financialData = await fetchFinancialData(userId, ticker)
+    const company = await runStep(jobId, ticker, "resolve_company", () =>
+      resolveCompany(userId, ticker),
+    )
+    const financialData = await runStep(jobId, ticker, "fetch_financial", () =>
+      fetchFinancialData(userId, ticker),
+    )
 
     await updateJobProgress(
       jobId,
@@ -367,15 +411,23 @@ const worker = new Worker(
       2,
       "Fetching relevant news signals...",
     )
-    const { articles, partial: newsListPartial } = await getCompanyNews(
-      redis,
-      supabaseAdmin,
-      userId,
+    const { articles, partial: newsListPartial } = await runStep(
+      jobId,
       ticker,
-      company.companyName,
-      30,
+      "fetch_news",
+      () =>
+        getCompanyNews(
+          redis,
+          supabaseAdmin,
+          userId,
+          ticker,
+          company.companyName,
+          30,
+        ),
     )
-    const newsData = await buildNewsData(userId, ticker, articles, newsListPartial)
+    const newsData = await runStep(jobId, ticker, "score_sentiment", () =>
+      buildNewsData(userId, ticker, articles, newsListPartial),
+    )
 
     await updateJobProgress(
       jobId,
@@ -383,7 +435,9 @@ const worker = new Worker(
       3,
       "Fetching Google Trends momentum...",
     )
-    const trendsData = await fetchTrendsData(userId, ticker)
+    const trendsData = await runStep(jobId, ticker, "fetch_trends", () =>
+      fetchTrendsData(userId, ticker),
+    )
 
     await updateJobProgress(
       jobId,
@@ -405,22 +459,30 @@ const worker = new Worker(
       trends: { series: trendsData.series },
     }
 
-    const { dimensions, partial: dimensionPartial } = computeAllDimensions({
-      ...baseDimensionInputs,
-      sentimentArticles: newsData.scoredArticles,
-      controversyArticles: newsData.articles,
-    })
-
-    const score = computeCompositeScore(dimensions)
-    const segment = assignSegment(dimensions)
-
-    const sensitivity = computeSensitivity({
-      score,
-      signals: newsData.signals,
-      controversyArticles: newsData.articles,
-      sentimentArticles: newsData.scoredArticles,
-      dimensionInputs: baseDimensionInputs,
-    })
+    const { dimensions, partial: dimensionPartial, score, segment, sensitivity } =
+      await runStep(jobId, ticker, "compute_dimensions", async () => {
+        const computed = computeAllDimensions({
+          ...baseDimensionInputs,
+          sentimentArticles: newsData.scoredArticles,
+          controversyArticles: newsData.articles,
+        })
+        const compositeScore = computeCompositeScore(computed.dimensions)
+        const seg = assignSegment(computed.dimensions)
+        const sens = computeSensitivity({
+          score: compositeScore,
+          signals: newsData.signals,
+          controversyArticles: newsData.articles,
+          sentimentArticles: newsData.scoredArticles,
+          dimensionInputs: baseDimensionInputs,
+        })
+        return {
+          dimensions: computed.dimensions,
+          partial: computed.partial,
+          score: compositeScore,
+          segment: seg,
+          sensitivity: sens,
+        }
+      })
 
     const confidenceMeta = resolveConfidence(
       dimensionPartial,
@@ -437,7 +499,9 @@ const worker = new Worker(
       signals: newsData.signals,
     }
 
-    const analysis = await generateAnalysis(userId, analysisCtx, confidenceMeta)
+    const analysis = await runStep(jobId, ticker, "generate_analysis", () =>
+      generateAnalysis(userId, analysisCtx, confidenceMeta),
+    )
 
     await updateJobProgress(jobId, "processing", 5, "Saving final score output...")
     const processingTimeMs = Date.now() - startedAt
@@ -458,42 +522,46 @@ const worker = new Worker(
       processingTimeMs,
     })
 
-    const { data: scoreRow, error: insertError } = await supabaseAdmin
-      .from("scores")
-      .insert({
-        user_id: userId,
-        ticker: fullScore.ticker,
-        company_name: fullScore.companyName,
-        exchange: fullScore.exchange,
-        score: fullScore.score,
-        segment: fullScore.segment,
-        summary: fullScore.summary,
-        counterfactual: fullScore.counterfactual,
-        dimensions: fullScore.dimensions,
-        signals: fullScore.signals,
-        news_timeline: fullScore.newsTimeline,
-        confidence: fullScore.confidence,
-        sensitivity: fullScore.sensitivity,
-        historical_benchmark: fullScore.historicalBenchmark,
-        processing_time_ms: fullScore.processingTime,
-        cache_hit: false,
-      })
-      .select("id")
-      .single()
+    const scoreRow = await runStep(jobId, ticker, "persist_score", async () => {
+      const { data, error: insertError } = await supabaseAdmin
+        .from("scores")
+        .insert({
+          user_id: userId,
+          ticker: fullScore.ticker,
+          company_name: fullScore.companyName,
+          exchange: fullScore.exchange,
+          score: fullScore.score,
+          segment: fullScore.segment,
+          summary: fullScore.summary,
+          counterfactual: fullScore.counterfactual,
+          dimensions: fullScore.dimensions,
+          signals: fullScore.signals,
+          news_timeline: fullScore.newsTimeline,
+          confidence: fullScore.confidence,
+          sensitivity: fullScore.sensitivity,
+          historical_benchmark: fullScore.historicalBenchmark,
+          processing_time_ms: fullScore.processingTime,
+          cache_hit: false,
+        })
+        .select("id")
+        .single()
+      if (insertError) throw insertError
+      return data
+    })
 
-    if (insertError) throw insertError
+    await runStep(jobId, ticker, "cache_score", async () => {
+      const { data: preferenceRow } = await supabaseAdmin
+        .from("user_preferences")
+        .select("cache_ttl_minutes")
+        .eq("user_id", userId)
+        .maybeSingle()
 
-    const { data: preferenceRow } = await supabaseAdmin
-      .from("user_preferences")
-      .select("cache_ttl_minutes")
-      .eq("user_id", userId)
-      .maybeSingle()
-
-    const ttlSeconds = Math.max(
-      60,
-      (preferenceRow?.cache_ttl_minutes ?? 15) * 60,
-    )
-    await setCache(stabilityScoreCacheKey(userId, ticker), fullScore, ttlSeconds)
+      const ttlSeconds = Math.max(
+        60,
+        (preferenceRow?.cache_ttl_minutes ?? 15) * 60,
+      )
+      await setCache(stabilityScoreCacheKey(userId, ticker), fullScore, ttlSeconds)
+    })
 
     await supabaseAdmin
       .from("jobs")
@@ -504,6 +572,13 @@ const worker = new Worker(
         completed_at: new Date().toISOString(),
       })
       .eq("id", jobId)
+
+    // Bump observability counters for /api/metrics
+    await Promise.all([
+      redis.incr("metrics:jobs_completed"),
+      redis.incrby("metrics:job_duration_sum_ms", processingTimeMs),
+      redis.incr("metrics:job_duration_count"),
+    ])
 
     logger.info({
       action: "job_complete",
@@ -529,6 +604,8 @@ worker.on("failed", async (job, error) => {
       })
       .eq("id", payload.jobId)
   }
+
+  await redis.incr("metrics:jobs_failed")
 
   logger.error({
     action: "job_fail",

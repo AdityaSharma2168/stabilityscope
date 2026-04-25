@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
@@ -13,7 +14,7 @@ const PROVIDER_MAP = {
 
 type ProviderInput = keyof typeof PROVIDER_MAP
 
-export async function GET() {
+export const GET = withLogging(async () => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -61,9 +62,9 @@ export async function GET() {
       { status: 500 },
     )
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withLogging(async (req: Request) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -105,4 +106,4 @@ export async function POST(req: Request) {
     logger.error({ action: "error", route: "/api/settings/keys", error })
     return NextResponse.json({ error: "Failed to save API key" }, { status: 500 })
   }
-}
+})

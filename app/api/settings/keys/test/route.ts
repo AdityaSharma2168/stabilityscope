@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
@@ -81,7 +82,7 @@ async function testProvider(provider: ProviderInput, apiKey: string): Promise<vo
   }
 }
 
-export async function POST(req: Request) {
+export const POST = withLogging(async (req: Request) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -149,4 +150,4 @@ export async function POST(req: Request) {
       { status: 500 },
     )
   }
-}
+})

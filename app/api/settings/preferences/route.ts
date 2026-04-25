@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
 
-export async function GET() {
+export const GET = withLogging(async () => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -36,9 +37,9 @@ export async function GET() {
       { status: 500 },
     )
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withLogging(async (req: Request) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -84,4 +85,4 @@ export async function POST(req: Request) {
       { status: 500 },
     )
   }
-}
+})

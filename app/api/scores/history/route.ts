@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
@@ -7,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase-server"
 const DEFAULT_PAGE = 1
 const DEFAULT_PAGE_SIZE = 25
 
-export async function GET(req: Request) {
+export const GET = withLogging(async (req: Request) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -50,4 +51,4 @@ export async function GET(req: Request) {
     logger.error({ action: "error", route: "/api/scores/history", error })
     return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 })
   }
-}
+})

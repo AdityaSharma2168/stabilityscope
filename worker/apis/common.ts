@@ -73,6 +73,14 @@ export async function incrementApiErrors(redis: Redis, provider: ApiProvider): P
   await redis.incr(`metrics:api_errors:${provider}`)
 }
 
+/**
+ * Per-call observability for an external API:
+ *   - logs `api_call` with provider/ticker/durationMs/success
+ *   - bumps `metrics:api_calls:{provider}` (count)
+ *   - bumps `metrics:api_errors:{provider}` on failure
+ *   - bumps `metrics:api_duration_sum_ms:{provider}` and `metrics:api_duration_count:{provider}`
+ *     so `/api/metrics` can compute a rolling average response time per provider.
+ */
 export async function logApiCallEnd(
   redis: Redis,
   provider: ApiProvider,
@@ -82,7 +90,11 @@ export async function logApiCallEnd(
 ): Promise<void> {
   const durationMs = Date.now() - startedAt
   logger.info({ action: "api_call", provider, ticker, durationMs, success })
-  await incrementApiCalls(redis, provider)
+  await Promise.all([
+    incrementApiCalls(redis, provider),
+    redis.incrby(`metrics:api_duration_sum_ms:${provider}`, durationMs),
+    redis.incr(`metrics:api_duration_count:${provider}`),
+  ])
   if (!success) {
     await incrementApiErrors(redis, provider)
   }

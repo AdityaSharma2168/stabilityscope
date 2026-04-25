@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server"
 
+import { withLogging } from "@/lib/api-logging"
 import { getCurrentUserId } from "@/lib/auth-helpers"
 import { logger } from "@/lib/logger"
 import { supabaseAdmin } from "@/lib/supabase-server"
 import type { StabilityScore } from "@/lib/types"
 
-export async function GET(
+export const GET = withLogging(async (
   _req: Request,
   context: { params: Promise<{ id: string }> },
-) {
+) => {
   try {
     const userId = await getCurrentUserId()
     if (!userId) {
@@ -53,4 +54,4 @@ export async function GET(
     logger.error({ action: "error", route: "/api/scores/[id]", error })
     return NextResponse.json({ error: "Failed to fetch score" }, { status: 500 })
   }
-}
+})

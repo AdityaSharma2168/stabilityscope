@@ -1,12 +1,10 @@
 import type Redis from "ioredis"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { getCached, setCache } from "../../lib/cache"
 import { logger } from "../../lib/logger"
 import {
   logApiCallEnd,
-  logCacheCheck,
-  redisGetJson,
-  redisSetJson,
   resolveNewsApiKey,
   respectNewsApiRateLimit,
   sleep,
@@ -185,14 +183,13 @@ async function fetchNewsLive(
   days: number,
 ): Promise<{ articles: CompanyNewsArticle[]; partial: boolean }> {
   const key = newsCacheKey(ticker)
-  const cachedUnknown = await redisGetJson(redis, key)
+  const cachedUnknown = await getCached<unknown>(key)
   if (
     cachedUnknown &&
     typeof cachedUnknown === "object" &&
     cachedUnknown !== null &&
     "raw" in cachedUnknown
   ) {
-    logCacheCheck(key, true)
     const cached = cachedUnknown as CachedNewsWrapper
     const deduped = dedupeArticles(cached.raw.articles ?? [])
     return {
@@ -200,8 +197,6 @@ async function fetchNewsLive(
       partial: cached.raw.status !== "ok",
     }
   }
-
-  logCacheCheck(key, false)
 
   const apiKey = await resolveNewsApiKey(supabase, userId)
   if (!apiKey) {
@@ -260,7 +255,7 @@ async function fetchNewsLive(
       raw: payload,
       fetchedAt: new Date().toISOString(),
     }
-    await redisSetJson(redis, key, wrapper, CACHE_TTL_SEC)
+    await setCache(key, wrapper, CACHE_TTL_SEC)
 
     const deduped = dedupeArticles(payload.articles ?? [])
     return {
@@ -284,14 +279,13 @@ export async function getCompanyNews(
   days = 30,
 ): Promise<{ articles: CompanyNewsArticle[]; partial: boolean }> {
   const key = newsCacheKey(ticker)
-  const cachedUnknown = await redisGetJson(redis, key)
+  const cachedUnknown = await getCached<unknown>(key)
   if (
     cachedUnknown &&
     typeof cachedUnknown === "object" &&
     cachedUnknown !== null &&
     "raw" in cachedUnknown
   ) {
-    logCacheCheck(key, true)
     const cached = cachedUnknown as CachedNewsWrapper
     const deduped = dedupeArticles(cached.raw.articles ?? [])
     return {

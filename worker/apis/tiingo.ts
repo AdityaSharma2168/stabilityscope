@@ -1,13 +1,12 @@
 import type Redis from "ioredis"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { getCached, setCache } from "../../lib/cache"
+import { findDow30 } from "../../lib/dow30"
 import { logger } from "../../lib/logger"
 import {
   TIINGO_MIN_INTERVAL_MS,
   logApiCallEnd,
-  logCacheCheck,
-  redisGetJson,
-  redisSetJson,
   resolveTiingoKey,
   sleep,
 } from "./common"
@@ -187,24 +186,22 @@ function isAuthError(status: number | undefined, message: string): boolean {
 }
 
 async function loadFinancialCache(
-  redis: Redis,
   ticker: string,
 ): Promise<TiingoFinancialCache | null> {
   const key = cacheKey(ticker)
-  const raw = await redisGetJson(redis, key)
+  const raw = await getCached<unknown>(key)
   if (!raw || !isRecord(raw)) return null
   return raw as TiingoFinancialCache
 }
 
 async function saveFinancialCache(
-  redis: Redis,
   ticker: string,
   patch: TiingoFinancialCache,
 ): Promise<void> {
   const key = cacheKey(ticker)
-  const existing = (await loadFinancialCache(redis, ticker)) ?? {}
+  const existing = (await loadFinancialCache(ticker)) ?? {}
   const merged: TiingoFinancialCache = { ...existing, ...patch }
-  await redisSetJson(redis, key, merged, CACHE_TTL_SEC)
+  await setCache(key, merged, CACHE_TTL_SEC)
 }
 
 function isBundleComplete(c: TiingoFinancialCache | null): boolean {
@@ -218,7 +215,7 @@ async function loadOrFetchFinancialBundle(
   upper: string,
 ): Promise<TiingoFinancialCache> {
   const key = cacheKey(upper)
-  const cached = await loadFinancialCache(redis, upper)
+  const cached = await loadFinancialCache(upper)
   if (cached !== null && cached.authBlocked === true) {
     logger.info({
       action: "tiingo_circuit",
@@ -229,11 +226,8 @@ async function loadOrFetchFinancialBundle(
     return cached
   }
   if (cached !== null && isBundleComplete(cached)) {
-    logCacheCheck(key, true)
     return cached
   }
-
-  logCacheCheck(key, false)
 
   const apiKey = await resolveTiingoKey(supabase, userId)
   if (!apiKey) {
@@ -267,7 +261,7 @@ async function loadOrFetchFinancialBundle(
       })
       partial = true
     }
-    await saveFinancialCache(redis, upper, state)
+    await saveFinancialCache(upper, state)
   }
 
   await run(
@@ -312,7 +306,7 @@ async function loadOrFetchFinancialBundle(
   )
 
   state.partial = partial || Boolean(state.authBlocked)
-  await saveFinancialCache(redis, upper, state)
+  await saveFinancialCache(upper, state)
   return state
 }
 
@@ -324,7 +318,7 @@ export async function ensureFinancialData(
 ): Promise<TiingoFinancialCache> {
   const upper = ticker.toUpperCase()
   const key = cacheKey(upper)
-  const quick = await loadFinancialCache(redis, upper)
+  const quick = await loadFinancialCache(upper)
   if (quick !== null && quick.authBlocked === true) {
     logger.info({
       action: "tiingo_circuit",
@@ -335,7 +329,6 @@ export async function ensureFinancialData(
     return quick
   }
   if (quick !== null && isBundleComplete(quick)) {
-    logCacheCheck(key, true)
     return quick
   }
 
@@ -376,6 +369,26 @@ export async function searchSymbol(
       symbol: hit.ticker.toUpperCase(),
       companyName: hit.name,
       exchange: hit.countryCode || hit.assetType || "Unknown",
+      sector: "Unknown",
+      partial: Boolean(bundle.partial),
+    }
+  }
+
+  // Fallback: Tiingo's /utilities/search occasionally misses common tickers
+  // (or rejects them on free tier). Since input is already constrained to
+  // DOW 30, prefer the canonical DOW30 name over an "(unresolved)" placeholder.
+  const dow = findDow30(upper)
+  if (dow) {
+    logger.info({
+      action: "symbol_fallback_dow30",
+      provider: PROVIDER,
+      ticker: upper,
+      companyName: dow.name,
+    })
+    return {
+      symbol: upper,
+      companyName: dow.name,
+      exchange: "Unknown",
       sector: "Unknown",
       partial: Boolean(bundle.partial),
     }

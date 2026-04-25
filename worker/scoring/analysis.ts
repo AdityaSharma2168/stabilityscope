@@ -4,8 +4,9 @@ import OpenAI from "openai"
 import type Redis from "ioredis"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { getCached, setCache } from "../../lib/cache"
 import { logger } from "../../lib/logger"
-import { logApiCallEnd, redisGetJson, redisSetJson, resolveOpenAIKey } from "../apis/common"
+import { logApiCallEnd, resolveOpenAIKey } from "../apis/common"
 import { computeCompositeScore, MAX_PER_SIGNAL_IMPACT } from "./composite"
 import {
   computeAllDimensions,
@@ -131,12 +132,10 @@ export async function generateSummary(
   redis: Redis,
 ): Promise<string> {
   const cacheKey = analysisCacheKey("summary", ctx)
-  const cached = (await redisGetJson(redis, cacheKey)) as { text?: string } | null
+  const cached = await getCached<{ text?: string }>(cacheKey)
   if (cached?.text) {
-    logger.info({ action: "cache_check", key: cacheKey, hit: true })
     return cached.text
   }
-  logger.info({ action: "cache_check", key: cacheKey, hit: false })
 
   if (client) {
     const systemPrompt =
@@ -159,7 +158,7 @@ export async function generateSummary(
       maxTokens: 240,
     })
     if (raw) {
-      await redisSetJson(redis, cacheKey, { text: raw }, ANALYSIS_TTL_SEC)
+      await setCache(cacheKey, { text: raw }, ANALYSIS_TTL_SEC)
       logger.info({ action: "analysis_generated", kind: "summary", ticker: ctx.ticker })
       return raw
     }
@@ -192,12 +191,10 @@ export async function generateCounterfactual(
   redis: Redis,
 ): Promise<Counterfactual> {
   const cacheKey = analysisCacheKey("counterfactual", ctx)
-  const cached = (await redisGetJson(redis, cacheKey)) as Counterfactual | null
+  const cached = await getCached<Counterfactual>(cacheKey)
   if (cached) {
-    logger.info({ action: "cache_check", key: cacheKey, hit: true })
     return cached
   }
-  logger.info({ action: "cache_check", key: cacheKey, hit: false })
 
   const topNegative = ctx.signals.negative[0]
   const topNegativeText = topNegative?.text ?? "the top weakest dimension"
@@ -246,7 +243,7 @@ export async function generateCounterfactual(
               ? "Financially Strong, Reputation Declining"
               : "Distressed",
       }
-      await redisSetJson(redis, cacheKey, cf, ANALYSIS_TTL_SEC)
+      await setCache(cacheKey, cf, ANALYSIS_TTL_SEC)
       logger.info({ action: "analysis_generated", kind: "counterfactual", ticker: ctx.ticker })
       return cf
     }
@@ -281,12 +278,10 @@ export async function generateHistoricalBenchmark(
   redis: Redis,
 ): Promise<HistoricalBenchmark> {
   const cacheKey = analysisCacheKey("historical", ctx)
-  const cached = (await redisGetJson(redis, cacheKey)) as HistoricalBenchmark | null
+  const cached = await getCached<HistoricalBenchmark>(cacheKey)
   if (cached) {
-    logger.info({ action: "cache_check", key: cacheKey, hit: true })
     return cached
   }
-  logger.info({ action: "cache_check", key: cacheKey, hit: false })
 
   if (client) {
     const systemPrompt =
@@ -328,7 +323,7 @@ export async function generateHistoricalBenchmark(
             ? parsed.period.trim()
             : "12 months",
       }
-      await redisSetJson(redis, cacheKey, benchmark, ANALYSIS_TTL_SEC)
+      await setCache(cacheKey, benchmark, ANALYSIS_TTL_SEC)
       logger.info({ action: "analysis_generated", kind: "historical", ticker: ctx.ticker })
       return benchmark
     }

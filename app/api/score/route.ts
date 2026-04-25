@@ -1,16 +1,32 @@
 import { NextResponse } from "next/server"
 
 import { getCurrentUserId } from "@/lib/auth-helpers"
+import { deleteCache, getCached } from "@/lib/cache"
 import { DOW30_NOT_SUPPORTED_MESSAGE, isDow30Ticker } from "@/lib/dow30"
 import { logger } from "@/lib/logger"
 import { scoringQueue } from "@/lib/queue"
-import { redis } from "@/lib/redis"
 import {
   SCORE_PIPELINE_VERSION,
   stabilityScoreCacheKey,
 } from "@/lib/score-cache-key"
 import { supabaseAdmin } from "@/lib/supabase-server"
 import type { StabilityScore } from "@/lib/types"
+
+const DEFAULT_CACHE_TTL_MIN = 15
+
+async function loadUserCacheTtlSeconds(userId: string): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from("user_preferences")
+    .select("cache_ttl_minutes")
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const minutes =
+    typeof data?.cache_ttl_minutes === "number" && data.cache_ttl_minutes > 0
+      ? data.cache_ttl_minutes
+      : DEFAULT_CACHE_TTL_MIN
+  return Math.max(60, Math.floor(minutes * 60))
+}
 
 export async function POST(req: Request) {
   try {
@@ -42,33 +58,48 @@ export async function POST(req: Request) {
     }
 
     const cacheKey = stabilityScoreCacheKey(userId, ticker)
-    if (!force) {
-      const cached = await redis.get(cacheKey)
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached) as StabilityScore
-          const versionOk =
-            (parsed.pipelineVersion ?? 0) >= SCORE_PIPELINE_VERSION
-          if (versionOk) {
-            logger.info({ action: "cache_check", key: cacheKey, hit: true })
-            const score: StabilityScore = { ...parsed, cacheHit: true }
-            return NextResponse.json({ score, cacheHit: true }, { status: 200 })
-          }
+    const ttlSeconds = await loadUserCacheTtlSeconds(userId)
+
+    if (force) {
+      logger.info({
+        action: "cache_bypass",
+        key: cacheKey,
+        ticker,
+        userId,
+        reason: "force_refresh",
+      })
+    } else {
+      const parsed = await getCached<StabilityScore>(cacheKey)
+      if (parsed) {
+        const versionOk =
+          (parsed.pipelineVersion ?? 0) >= SCORE_PIPELINE_VERSION
+        if (versionOk) {
           logger.info({
-            action: "cache_check",
-            key: cacheKey,
-            hit: false,
-            reason: "stale_cached_score",
-            hadVersion: parsed.pipelineVersion ?? 0,
+            action: "score_cache_hit",
+            ticker,
+            userId,
+            ttlSeconds,
           })
-        } catch {
-          logger.warn({ action: "cache_check", key: cacheKey, reason: "invalid_json" })
+          const score: StabilityScore = { ...parsed, cacheHit: true }
+          return NextResponse.json({ score, cacheHit: true }, { status: 200 })
         }
-        await redis.del(cacheKey)
+        logger.info({
+          action: "cache_invalidate_stale",
+          key: cacheKey,
+          hadVersion: parsed.pipelineVersion ?? 0,
+          requiredVersion: SCORE_PIPELINE_VERSION,
+        })
+        await deleteCache(cacheKey)
       }
     }
 
-    logger.info({ action: "cache_check", key: cacheKey, hit: false })
+    logger.info({
+      action: "score_cache_miss",
+      ticker,
+      userId,
+      forced: force,
+      ttlSeconds,
+    })
 
     const { data: jobRow, error: insertError } = await supabaseAdmin
       .from("jobs")

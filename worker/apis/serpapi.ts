@@ -1,13 +1,11 @@
 import type Redis from "ioredis"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { getCached, setCache } from "../../lib/cache"
 import { logger } from "../../lib/logger"
 import {
   getUserApiKey,
   logApiCallEnd,
-  logCacheCheck,
-  redisGetJson,
-  redisSetJson,
 } from "./common"
 
 const PROVIDER = "serpapi" as const
@@ -111,19 +109,16 @@ export async function getGoogleTrends(
   days = 90,
 ): Promise<TrendDataPoint[] | null> {
   const key = trendsCacheKey(ticker)
-  const cachedUnknown = await redisGetJson(redis, key)
+  const cachedUnknown = await getCached<unknown>(key)
   if (
     cachedUnknown &&
     typeof cachedUnknown === "object" &&
     cachedUnknown !== null &&
     "raw" in cachedUnknown
   ) {
-    logCacheCheck(key, true)
     const cached = cachedUnknown as CachedTrendsWrapper
     return extractInterestSeries(cached.raw)
   }
-
-  logCacheCheck(key, false)
 
   const apiKey = await getUserApiKey(supabase, userId, PROVIDER)
   if (!apiKey) {
@@ -170,7 +165,7 @@ export async function getGoogleTrends(
       raw,
       fetchedAt: new Date().toISOString(),
     }
-    await redisSetJson(redis, key, wrapper, CACHE_TTL_SEC)
+    await setCache(key, wrapper, CACHE_TTL_SEC)
 
     return extractInterestSeries(raw)
   } catch (e) {

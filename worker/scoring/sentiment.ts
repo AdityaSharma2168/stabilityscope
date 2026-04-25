@@ -4,8 +4,9 @@ import OpenAI from "openai"
 import type Redis from "ioredis"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { setCache } from "../../lib/cache"
 import { logger } from "../../lib/logger"
-import { logApiCallEnd, redisGetJson, redisSetJson, resolveOpenAIKey } from "../apis/common"
+import { logApiCallEnd, resolveOpenAIKey } from "../apis/common"
 
 export type SentimentArticle = {
   title: string
@@ -216,6 +217,20 @@ export async function scoreSentimentBatch(
     if (value === null) missingIndexes.push(idx)
   })
 
+  const hits = articles.length - missingIndexes.length
+  const misses = missingIndexes.length
+  logger.info({
+    action: "cache_check",
+    key: `sentiment:batch:${ticker}`,
+    hit: misses === 0,
+    hits,
+    misses,
+  })
+  if (hits > 0)
+    await redis.incrby("metrics:cache_hits", hits).catch(() => undefined)
+  if (misses > 0)
+    await redis.incrby("metrics:cache_misses", misses).catch(() => undefined)
+
   if (missingIndexes.length === 0) {
     logger.info({
       action: "sentiment_batch",
@@ -242,9 +257,7 @@ export async function scoreSentimentBatch(
     for (const idx of missingIndexes) {
       const score = lexicalSentiment(articles[idx])
       results[idx] = score
-      await redis
-        .set(cacheKeys[idx], score.toString(), "EX", SENTIMENT_TTL_SEC)
-        .catch(() => undefined)
+      await setCache(cacheKeys[idx], score, SENTIMENT_TTL_SEC)
     }
     return results
   }
@@ -259,17 +272,13 @@ export async function scoreSentimentBatch(
         const idx = slice[i]
         const score = clamp(batchScores[i], -1, 1)
         results[idx] = score
-        await redis
-          .set(cacheKeys[idx], score.toString(), "EX", SENTIMENT_TTL_SEC)
-          .catch(() => undefined)
+        await setCache(cacheKeys[idx], score, SENTIMENT_TTL_SEC)
       }
     } else {
       for (const idx of slice) {
         const score = lexicalSentiment(articles[idx])
         results[idx] = score
-        await redis
-          .set(cacheKeys[idx], score.toString(), "EX", SENTIMENT_TTL_SEC)
-          .catch(() => undefined)
+        await setCache(cacheKeys[idx], score, SENTIMENT_TTL_SEC)
       }
     }
   }

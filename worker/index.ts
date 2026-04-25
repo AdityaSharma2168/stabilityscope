@@ -33,6 +33,7 @@ import {
   type SentimentArticleScored,
 } from "./scoring/dimensions"
 import { scoreSentimentBatch } from "./scoring/sentiment"
+import { setCache } from "../lib/cache"
 import { logger } from "../lib/logger"
 import { redis } from "../lib/redis"
 import {
@@ -492,12 +493,7 @@ const worker = new Worker(
       60,
       (preferenceRow?.cache_ttl_minutes ?? 15) * 60,
     )
-    await redis.set(
-      stabilityScoreCacheKey(userId, ticker),
-      JSON.stringify(fullScore),
-      "EX",
-      ttlSeconds,
-    )
+    await setCache(stabilityScoreCacheKey(userId, ticker), fullScore, ttlSeconds)
 
     await supabaseAdmin
       .from("jobs")

@@ -65,29 +65,6 @@ export async function resolveNewsApiKey(
   )
 }
 
-export function logCacheCheck(key: string, hit: boolean): void {
-  logger.info({ action: "cache_check", key, hit })
-}
-
-export async function redisGetJson(redis: Redis, key: string): Promise<unknown | null> {
-  const raw = await redis.get(key)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as unknown
-  } catch {
-    return null
-  }
-}
-
-export async function redisSetJson(
-  redis: Redis,
-  key: string,
-  value: unknown,
-  ttlSeconds: number,
-): Promise<void> {
-  await redis.set(key, JSON.stringify(value), "EX", ttlSeconds)
-}
-
 export async function incrementApiCalls(redis: Redis, provider: ApiProvider): Promise<void> {
   await redis.incr(`metrics:api_calls:${provider}`)
 }

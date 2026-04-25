@@ -28,6 +28,35 @@ async function submitScore(ticker: string, force: boolean): Promise<ScoreSubmitR
   return (await response.json()) as ScoreSubmitResponse
 }
 
+/**
+ * In-flight submit promise cache keyed by `${ticker}:${reloadKey}:${force}`.
+ *
+ * React 19 Strict Mode (default in `next dev`) re-mounts effects, which would
+ * otherwise fire `POST /api/score` twice for one search — both racing past the
+ * route's cache check before either job completes. We share the same promise
+ * across the two mount cycles so only one job is ever queued; the entry self-
+ * evicts shortly after settling so a real refresh still triggers a new POST.
+ */
+const inflightSubmissions = new Map<string, Promise<ScoreSubmitResponse>>()
+
+function submitScoreDeduped(
+  key: string,
+  ticker: string,
+  force: boolean,
+): Promise<ScoreSubmitResponse> {
+  const existing = inflightSubmissions.get(key)
+  if (existing) return existing
+  const pending = submitScore(ticker, force).finally(() => {
+    setTimeout(() => {
+      if (inflightSubmissions.get(key) === pending) {
+        inflightSubmissions.delete(key)
+      }
+    }, 5_000)
+  })
+  inflightSubmissions.set(key, pending)
+  return pending
+}
+
 async function pollJob(jobId: string): Promise<JobStatusResponse> {
   const response = await authedFetch(`/api/jobs/${jobId}`, {
     method: "GET",
@@ -60,13 +89,15 @@ export function useScoreDetail(ticker: string) {
 
     const run = async () => {
       const force = forceNextRef.current
+      const submitKey = `${ticker}:${reloadKey}:${force ? "force" : "noforce"}`
+
       if (force) {
         setScore(null)
       }
       setIsLoading(true)
 
       try {
-        const submitResult = await submitScore(ticker, force)
+        const submitResult = await submitScoreDeduped(submitKey, ticker, force)
         forceNextRef.current = false
         if (cancelled) return
 

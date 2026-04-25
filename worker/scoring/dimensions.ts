@@ -29,20 +29,30 @@ const SECTOR_DEBT_TO_EQUITY_MEDIAN: Record<string, number> = {
   default: 1.5,
 }
 
+/**
+ * Per-sector calibration of the maximum "expected" EPS σ. The absolute values
+ * were doubled from the original calibration after observing that blue-chips
+ * (AAPL σ≈0.59, MSFT σ≈0.71) were collapsing to 0 under the old `maxSigma=0.5`.
+ *
+ * The score curve in {@link epsStabilityScore} is normalized by `r = σ/maxSigma`,
+ * so a sector's maxSigma sets where the 80 / 50 / 0 anchors land on the σ axis:
+ *   tech (maxSigma=1.0):  σ=0.3 → 80, σ=0.5 → 50, σ=1.5 → 0
+ *   energy (maxSigma=1.5): σ=0.45 → 80, σ=0.75 → 50, σ=2.25 → 0
+ */
 const SECTOR_EPS_SIGMA_MAX: Record<string, number> = {
-  technology: 0.5,
-  tech: 0.5,
-  consumer: 0.4,
-  financials: 0.7,
-  banks: 0.7,
-  insurance: 0.7,
-  energy: 0.9,
-  materials: 0.7,
-  utilities: 0.3,
-  healthcare: 0.5,
-  telecom: 0.4,
-  staples: 0.3,
-  default: 0.5,
+  technology: 1.0,
+  tech: 1.0,
+  consumer: 1.0,
+  financials: 1.2,
+  banks: 1.2,
+  insurance: 1.2,
+  energy: 1.5,
+  materials: 1.2,
+  utilities: 0.6,
+  healthcare: 1.0,
+  telecom: 0.8,
+  staples: 0.6,
+  default: 1.0,
 }
 
 function clamp(value: number, lo: number, hi: number): number {
@@ -81,6 +91,40 @@ function lookupSector<T>(
     if (key.includes(needle)) return value
   }
   return fallback
+}
+
+/**
+ * Piecewise-linear EPS-stability normalization, expressed in σ relative to
+ * the sector's `maxExpectedSigma` so the curve stays calibrated when sector
+ * volatility differs.
+ *
+ * Anchors (in normalized r = σ / maxSigma):
+ *   r = 0.0 → 100  (perfect EPS consistency)
+ *   r = 0.3 → 80   (low variance, blue-chip range)
+ *   r = 0.5 → 50   (typical market variance)
+ *   r = 1.5 → 0    (extreme volatility / earnings flips)
+ *
+ * For tech (`maxSigma = 1.0`) these anchors map to the absolute σ targets in
+ * the spec: σ < 0.3 ⇒ 80+, σ ≈ 0.5 ⇒ ~50, σ ≥ 1.5 ⇒ ~0. AAPL (σ ≈ 0.59) lands
+ * around 45 and MSFT (σ ≈ 0.71) around 39, which is more realistic than the
+ * old linear formula's 0 at maxSigma = 0.5.
+ */
+function epsStabilityScore(sigma: number, maxSigma: number): number {
+  if (!Number.isFinite(sigma) || !Number.isFinite(maxSigma) || maxSigma <= 0) {
+    return 50
+  }
+  const r = Math.max(0, sigma) / maxSigma
+  let score: number
+  if (r <= 0.3) {
+    score = 100 - (r / 0.3) * 20
+  } else if (r <= 0.5) {
+    score = 80 - ((r - 0.3) / 0.2) * 30
+  } else if (r <= 1.5) {
+    score = 50 - ((r - 0.5) / 1.0) * 50
+  } else {
+    score = 0
+  }
+  return Math.round(clamp(score, 0, 100))
 }
 
 function logDimension(name: string, score: number, rawValue: string, weight: number): void {
@@ -130,7 +174,7 @@ export function computeEarningsStability(input: EarningsStabilityInput): {
     trend = "stable"
   } else {
     const sigma = stdDev(eps)
-    score = Math.round(clamp(100 - (sigma / maxSigma) * 100, 0, 100))
+    score = epsStabilityScore(sigma, maxSigma)
     rawValue = `σ ${sigma.toFixed(3)} (n=${eps.length}, max σ=${maxSigma})`
     trend = sigma < maxSigma * 0.3 ? "strong" : sigma < maxSigma * 0.7 ? "stable" : "volatile"
   }
